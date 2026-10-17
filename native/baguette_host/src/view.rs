@@ -52,10 +52,6 @@ fn render_element(
     window: u32,
     theme: &Theme,
 ) -> AnyElement {
-    #[cfg(feature = "bootstrap")]
-    if let Some(element) = crate::bootstrap::render(tag, attrs, children, path, window, theme) {
-        return element;
-    }
     let classes = attrs.get("class").map(String::as_str).unwrap_or("");
     let disabled = attrs.contains_key("disabled");
     let base = style::apply(

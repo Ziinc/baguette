@@ -19,7 +19,6 @@ only for platform-specific NIFs.
 | | |
 | --- | --- |
 | [`examples/broadway`](examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
-| [`examples/bootstrap`](examples/bootstrap) | A release dashboard built from [gpui-bootstrap](https://github.com/Ziinc/gpui-bootstrap) components (`bs-*` elements), state in a GenServer. |
 | [`examples/counter`](examples/counter) | The smallest app: a count held in a GenServer. |
 
 Each one is a `mix release`:

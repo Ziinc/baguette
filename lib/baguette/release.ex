@@ -10,10 +10,9 @@ defmodule Baguette.Release do
   `bin/<release>_app`. Run that executable to start the app; it boots this
   release inside the host on the BEAM it links.
 
-  Host features are release options; `bootstrap` adds gpui-bootstrap's
-  components as `bs-*` elements:
+  Host Cargo features are a release option:
 
-      my_app: [steps: [...], baguette: [host_features: ["bootstrap"]]]
+      my_app: [steps: [...], baguette: [host_features: ["some_feature"]]]
 
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
