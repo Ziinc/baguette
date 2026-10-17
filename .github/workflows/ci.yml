@@ -27,6 +27,12 @@ jobs:
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
       - run: mix test
+      - name: Screenshot tests (GPUI's headless renderer on lavapipe)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libvulkan-dev mesa-vulkan-drivers libxkbcommon-dev \
+            libxkbcommon-x11-dev libwayland-dev libx11-xcb-dev libfontconfig-dev libfreetype-dev fonts-dejavu
+          mix test --only render
       - name: Example tests
         run: |
           for example in examples/*/; do
@@ -57,6 +63,7 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
       - run: cargo test -p baguette_view --features test-support
+      - run: cargo clippy -p baguette_view --features render --all-targets -- -D warnings
 
   e2e-linux:
     # The counter as a real `mix release`: the host links liberlang built from

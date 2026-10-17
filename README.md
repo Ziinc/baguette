@@ -64,6 +64,28 @@ test "increments" do
 end
 ```
 
+Screenshot tests draw the window's last frame offscreen with GPUI and check
+the PNG, for example with
+[gpui-visual-test](https://github.com/Ziinc/gpui-visual-test):
+
+```elixir
+@tag :tmp_dir
+test "counter looks right", %{tmp_dir: dir} do
+  path = Path.join(dir, "counter.png")
+  File.write!(path, Baguette.Test.render_png(0, width: 400, height: 300))
+
+  {report, status} =
+    System.cmd("cargo-visual-test", ["check", path, "--name", "counter/initial", "--scale", "2",
+      "-e", "The count reads 0", "--diff", "0.001"], stderr_to_stdout: true)
+
+  assert status == 0, report
+end
+```
+
+`render_png` runs `native/baguette_view`'s `baguette_render` binary (its
+`render` feature), so it needs Vulkan on Linux (lavapipe from
+`mesa-vulkan-drivers` without a GPU) or macOS.
+
 ## How it fits together
 
 - `native/baguette_host`: the native host, built on
@@ -102,6 +124,7 @@ gpui-testing-library and gpui-visual-test use.
 
 ```sh
 mix test
+mix test --only render   # screenshots; needs Vulkan (lavapipe) on Linux
 (cd native && cargo test && cargo test -p baguette_view --features test-support)
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```

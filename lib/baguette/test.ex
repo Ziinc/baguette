@@ -59,6 +59,57 @@ defmodule Baguette.Test do
     end
   end
 
+  @manifest Path.expand("../../native/Cargo.toml", __DIR__)
+
+  @doc """
+  A PNG of what `window` last rendered, drawn offscreen by GPUI, for
+  screenshot tests. Check it with gpui-visual-test's `cargo visual-test
+  check`, or compare it with an approved image.
+
+  Options: `:width` and `:height` in logical pixels (default 800x600). The
+  image is at the headless renderer's scale (2x).
+
+  Runs `$BAGUETTE_RENDER` when set, else builds and runs `baguette_render`
+  (`baguette_view`'s `render` feature) with cargo. Needs GPUI's headless
+  renderer: macOS, or Linux with Vulkan (lavapipe from `mesa-vulkan-drivers`
+  without a GPU).
+  """
+  @spec render_png(Host.window(), keyword) :: binary
+  def render_png(window, opts \\ []) do
+    sync(window)
+    frame = Host.last_frame(window) || raise ArgumentError, "nothing rendered to window #{window}"
+    dir = Path.join(System.tmp_dir!(), "baguette_render_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+
+    try do
+      json = Path.join(dir, "frame.json")
+      png = Path.join(dir, "frame.png")
+      File.write!(json, JSON.encode!(frame))
+
+      args =
+        ["--frame", json, "--out", png] ++
+          ["--width", to_string(opts[:width] || 800), "--height", to_string(opts[:height] || 600)]
+
+      {cmd, args} =
+        case System.get_env("BAGUETTE_RENDER") do
+          nil ->
+            {"cargo",
+             ["run", "--quiet", "--manifest-path", @manifest, "-p", "baguette_view"] ++
+               ["--features", "render", "--bin", "baguette_render", "--" | args]}
+
+          bin ->
+            {bin, args}
+        end
+
+      case System.cmd(cmd, args, stderr_to_stdout: true) do
+        {_, 0} -> File.read!(png)
+        {output, status} -> raise "baguette_render exited with #{status}:\n#{output}"
+      end
+    after
+      File.rm_rf!(dir)
+    end
+  end
+
   # Waits until the owner of `window` has handled everything sent to it, and
   # the host has stored what it rendered in response.
   defp sync(window) do

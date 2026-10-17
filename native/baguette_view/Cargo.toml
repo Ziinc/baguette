@@ -11,6 +11,9 @@ publish = false
 # Registers every rendered element with gpui-base's `.test_support()`, so
 # gpui-testing-library queries find them by role, label and text.
 test-support = ["gpui/test-support", "dep:gpui-base", "gpui-base/test-support"]
+# The `baguette_render` binary: a frame's JSON in, a PNG out, drawn by GPUI's
+# headless renderer. For screenshot tests (`Baguette.Test.render_png`).
+render = ["gpui/test-support", "dep:gpui_platform", "gpui_platform/test-support", "dep:serde_json", "dep:image", "dep:anyhow"]
 
 [dependencies]
 # The snapshot tauri-gpui main and gpui-kit 0.7.3 use: one GPUI crate in the
@@ -19,6 +22,10 @@ gpui = { package = "gpui-pre", version = "=0.3.9" }
 # Only for `.test_support()`: it brings in more than a renderer should ship.
 gpui-base = { version = "=0.7.3", default-features = false, optional = true }
 serde = { version = "1", features = ["derive"] }
+anyhow = { version = "1", optional = true }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["font-kit", "x11", "wayland", "runtime_shaders"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
+serde_json = { version = "1", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 log = "0.4"
@@ -30,3 +37,7 @@ gpui = { package = "gpui-pre", version = "=0.3.9", features = ["test-support"] }
 [[test]]
 name = "test_support"
 required-features = ["test-support"]
+
+[[bin]]
+name = "baguette_render"
+required-features = ["render"]
