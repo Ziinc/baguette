@@ -88,6 +88,8 @@ fi
 make -j"$jobs" emulator || echo "(erts/etc tools failed to build; not needed)"
 
 target=$(ls -d bin/*android* | head -1 | xargs basename)
+# inet_gethost is one of those tools, so build it on its own.
+make -C erts/etc/common -f "$target/Makefile" TARGET="$target" TYPE=opt "$src/bin/$target/inet_gethost"
 archives=(
   "bin/$target/libbeam.a"
   "erts/lib/internal/$target/libethread.a"
