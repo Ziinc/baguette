@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use tauri_plugin_gpui::gpui::{FontWeight, Hsla, Rgba, Styled, px, relative, rgb};
+use gpui::{FontWeight, Hsla, Rgba, Styled, px, relative, rgb};
 
 /// Theme tokens sent by Elixir, by name.
 pub type Theme = HashMap<String, String>;
