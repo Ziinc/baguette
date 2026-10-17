@@ -1,0 +1,39 @@
+name: Release
+
+# Pushing a `v*` tag runs CI and the Android build, then publishes the Firehose
+# demo's builds as a GitHub release: Linux (.deb, AppImage), macOS (.dmg for
+# Apple silicon and Intel) and Android (signed APK and AAB).
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+    secrets: inherit
+
+  android:
+    uses: ./.github/workflows/android.yml
+    secrets: inherit
+
+  publish:
+    needs: [ci, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: firehose-*
+          merge-multiple: true
+          path: assets
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          # The emulator's debug APK is a test build, not a release.
+          rm -f assets/firehose.apk
+          find assets -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" \
+            --target "$GITHUB_SHA" --generate-notes
