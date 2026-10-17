@@ -52,7 +52,7 @@ jobs:
         run: |
           scripts/build-liberlang-android.sh "$OTP_TAG" x86_64 ~/liberlang-build
           mkdir -p ~/liberlang-android/x86_64-linux-android
-          cp ~/liberlang-build/liberlang.so ~/liberlang-build/erl_child_setup ~/liberlang-android/x86_64-linux-android/
+          cp ~/liberlang-build/{liberlang.so,erl_child_setup,inet_gethost} ~/liberlang-android/x86_64-linux-android/
       - name: Build the Firehose APK
         working-directory: examples/broadway
         env:
