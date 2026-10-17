@@ -251,9 +251,10 @@ fn run(_args: Vec<String>) {
 ///
 /// Android only runs executables from the app's native library directory and
 /// links each library against what it lists, so the APK carries the BEAM as
-/// `liberlang.so`, `erl_child_setup` as `liberl_child_setup.so` and each NIF
-/// as `lib<name>.so`. Unpacking links the release to them: `bin/erl_child_setup`
-/// and every `priv/native/<name>.so` become symlinks into that directory.
+/// `liberlang.so`, its port programs as `lib<name>.so` (`erl_child_setup`,
+/// `inet_gethost`) and each NIF as `lib<name>.so`. Unpacking links the release
+/// to them: `bin/<program>` and every `priv/native/<name>.so` become symlinks
+/// into that directory.
 #[cfg(target_os = "android")]
 pub mod android {
     use std::path::{Path, PathBuf};
@@ -345,10 +346,12 @@ pub mod android {
                 .map_err(|e| format!("linking {} to {}: {e}", at.display(), target.display()))
         };
         std::fs::create_dir_all(root.join("bin")).map_err(|e| e.to_string())?;
-        link(
-            native.join("liberl_child_setup.so"),
-            root.join("bin/erl_child_setup"),
-        )?;
+        for program in ["erl_child_setup", "inet_gethost"] {
+            link(
+                native.join(format!("lib{program}.so")),
+                root.join("bin").join(program),
+            )?;
+        }
         for app in std::fs::read_dir(root.join("lib"))
             .map_err(|e| e.to_string())?
             .flatten()

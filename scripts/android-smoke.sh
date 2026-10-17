@@ -23,7 +23,8 @@ adb shell am wait-for-broadcast-idle || sleep 5
 adb logcat -c
 "$ADB_BIN" logcat >"$OUT/logcat.txt" 2>&1 &
 logcat=$!
-trap 'kill "$logcat" 2>/dev/null || true' EXIT
+# Whatever happens, keep a picture of the screen as the run ends.
+trap 'adb exec-out screencap -p >"$OUT/final.png" || true; kill "$logcat" 2>/dev/null || true' EXIT
 adb shell am start -n "$PKG/.MainActivity"
 
 failures=0

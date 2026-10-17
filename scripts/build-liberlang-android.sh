@@ -5,8 +5,10 @@
 #   scripts/build-liberlang-android.sh OTP-29.1.2 x86_64 /path/to/out
 #   scripts/build-liberlang-android.sh OTP-29.1.2 arm64  /path/to/out
 #
-# Out: <out>/liberlang.so (and the .a it is made from), <out>/erl_child_setup (the BEAM forks it at boot;
-# the app ships it as a native library so Android lets it run).
+# Out: <out>/liberlang.so (and the .a it is made from), plus the port programs
+# <out>/erl_child_setup (the BEAM forks it at boot) and <out>/inet_gethost
+# (hostname lookups); the app ships them as native libraries so Android lets
+# them run.
 #
 # Android loads app code with RTLD_LOCAL, so a NIF loaded later cannot see the
 # BEAM's `enif_*` symbols. OTP's own NIFs (crypto, asn1) are therefore linked
@@ -107,7 +109,7 @@ archives=(
   echo "END"
 } | llvm-ar -M
 llvm-ranlib "$out/liberlang.a"
-cp "bin/$target/erl_child_setup" "$out/erl_child_setup"
+cp "bin/$target/erl_child_setup" "bin/$target/inet_gethost" "$out/"
 
 # Android resolves a library's symbols only from what it links, so NIFs
 # loaded later (Rustler's, the app's own) find `enif_*` in this shared

@@ -155,9 +155,10 @@ defmodule Baguette.Release do
 
   The release (its `lib` and `releases`, not the build machine's ERTS) is
   embedded in the host library, which unpacks it on first launch. The APK
-  also carries the BEAM (`liberlang.so`), `erl_child_setup` and Baguette's
-  NIF as native libraries. `BAGUETTE_LIBERLANG` must hold
-  `<target>/liberlang.so` and `<target>/erl_child_setup` for each ABI, from
+  also carries the BEAM (`liberlang.so`), its port programs
+  (`erl_child_setup`, `inet_gethost`) and Baguette's NIF as native libraries.
+  `BAGUETTE_LIBERLANG` must hold `<target>/liberlang.so` and both port
+  programs for each ABI, from
   `scripts/build-liberlang-android.sh` with the OTP this release was built
   with. Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java and
   Node. The debug-signed APK lands in `_build/<env>/android/<name>.apk`.
@@ -222,6 +223,7 @@ defmodule Baguette.Release do
       File.mkdir_p!(jni)
       File.cp!(Path.join(beam, "liberlang.so"), Path.join(jni, "liberlang.so"))
       File.cp!(Path.join(beam, "erl_child_setup"), Path.join(jni, "liberl_child_setup.so"))
+      File.cp!(Path.join(beam, "inet_gethost"), Path.join(jni, "libinet_gethost.so"))
 
       linker_env = [
         {"CARGO_TARGET_#{abi.triple |> String.upcase() |> String.replace("-", "_")}_LINKER",
