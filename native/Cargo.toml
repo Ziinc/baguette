@@ -1,0 +1,8 @@
+[workspace]
+resolver = "3"
+members = ["baguette_abi", "baguette_nif", "baguette_host"]
+
+# wgpu turns on shader debug info in debug builds, and the Android emulator's
+# SwiftShader Vulkan rejects the SPIR-V that produces.
+[profile.dev.package.wgpu-types]
+debug-assertions = false
