@@ -71,6 +71,10 @@ end
   thread on every platform, which macOS, iOS and Android require. It links
   the BEAM (`liberlang.a`), boots the app's release with `erl_start`, and
   draws the trees the release sends.
+- `native/baguette_view`: the renderer: Elixir's trees as GPUI elements. Its
+  `test-support` feature registers every element with gpui-base's
+  `.test_support()`, so Rust tests (gpui-testing-library, gpui-visual-test)
+  can render a tree and query or click it without the host.
 - `native/baguette_nif`: the Rustler NIF that connects `Baguette.Host` to the
   host's C ABI (`native/baguette_abi`).
 - `lib/`: the Elixir library: views, the render protocol, components, test
@@ -98,7 +102,7 @@ gpui-testing-library and gpui-visual-test use.
 
 ```sh
 mix test
-(cd native && cargo test)
+(cd native && cargo test && cargo test -p baguette_view --features test-support)
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```
 

@@ -51,10 +51,10 @@ extern "C" fn set_event_sink(_ctx: *mut c_void, sink: EventSink) {
 }
 
 /// Sends a UI event to Elixir. Dropped when no process is attached yet.
-pub fn emit(event: &serde_json::Value) {
+pub fn emit(event: &baguette_view::Event) {
     let Some(sink) = BRIDGE.get().and_then(|b| *b.sink.lock().unwrap()) else {
         return;
     };
-    let json = event.to_string();
+    let json = serde_json::to_string(event).expect("events serialize");
     (sink.call)(sink.ctx, json.as_ptr(), json.len());
 }

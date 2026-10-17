@@ -7,12 +7,9 @@
 
 mod beam;
 mod bridge;
-mod style;
-mod view;
 
+use baguette_view::{Frame, Node, Root};
 use tauri_plugin_gpui::{GpuiWindowExt, gpui::AppContext};
-
-use crate::view::{Frame, Node, Root};
 
 fn notice(text: String) -> Frame {
     Frame {
@@ -73,7 +70,7 @@ pub fn run() {
                 Err(error) => notice(format!("No Elixir release to run: {error}")),
             };
             let build = move |cx: &mut tauri_plugin_gpui::gpui::App| {
-                let root = cx.new(|_| Root { window: 0, frame });
+                let root = cx.new(|_| Root::new(0, |event| bridge::emit(&event)).with_frame(frame));
                 let handle = root.clone();
                 cx.spawn(async move |cx| {
                     let mut first = true;
@@ -90,7 +87,7 @@ pub fn run() {
                             Err(error) => notice(format!("Invalid render from Elixir: {error}")),
                         };
                         handle.update(cx, |root, cx| {
-                            root.frame = frame;
+                            root.set_frame(frame);
                             cx.notify();
                         });
                     }
