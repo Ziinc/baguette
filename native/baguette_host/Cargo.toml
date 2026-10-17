@@ -22,6 +22,9 @@ tauri = { version = "2.12", features = ["unstable"] }
 # tauri-gpui's main is on gpui-pre =0.3.9, the snapshot gpui-kit 0.7.3 uses.
 # Switch to a release once one is published.
 tauri-plugin-gpui = { git = "https://github.com/ziinc/tauri-gpui", features = ["mobile"] }
+gpui-kit = { version = "=0.7.3", optional = true }
+# Serves Playwright from inside the app (see src/playwright.rs).
+gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", rev = "0183755", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"
@@ -29,3 +32,8 @@ flate2 = "1"
 libc = "0.2"
 log = "0.4"
 tar = "0.4"
+
+[features]
+# Lets stock Playwright clients, such as Elixir's playwright_ex, drive the app:
+# set GPUI_PLAYWRIGHT=9333 and connect to ws://127.0.0.1:9333/.
+playwright = ["dep:gpui-kit", "gpui-kit/test-support", "dep:gpui-playwright"]

@@ -35,7 +35,7 @@ pub enum Node {
 
 pub fn render(node: &Node, path: &str, window: u32, theme: &Theme) -> AnyElement {
     match node {
-        Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
+        Node::Text(text) => observe_text(SharedString::from(text.clone())),
         Node::Element {
             tag,
             attrs,
@@ -69,8 +69,7 @@ fn render_element(
         .enumerate()
         .map(|(i, child)| render(child, &format!("{path}.{i}"), window, theme));
 
-    let element = base
-        .id(SharedString::from(path.to_owned()))
+    let element = observe(base.id(SharedString::from(path.to_owned())))
         .children(rendered)
         .when(tag == "button", |el| el.role(Role::Button))
         // A label's text is its value in AccessKit, so screen readers (and
@@ -102,6 +101,31 @@ fn render_element(
         .active(move |s| style::apply(s, active.iter(), &active_theme))
         .on_click(on_click)
         .into_any_element()
+}
+
+/// With the `playwright` feature, registers the element for Playwright's
+/// locators: its role, label and value come from the accessibility calls below.
+#[cfg(feature = "playwright")]
+fn observe(
+    element: gpui::Stateful<gpui::Div>,
+) -> gpui_kit::base::ObservedElement<gpui::Stateful<gpui::Div>> {
+    use gpui_kit::base::TestSupportExt;
+    element.test_support()
+}
+#[cfg(not(feature = "playwright"))]
+fn observe(element: gpui::Stateful<gpui::Div>) -> gpui::Stateful<gpui::Div> {
+    element
+}
+
+/// Text as Playwright's `getByText` sees it, with the `playwright` feature.
+fn observe_text(text: SharedString) -> AnyElement {
+    #[cfg(feature = "playwright")]
+    {
+        use gpui_kit::base::TestTextExt;
+        text.clone().test_text(text).into_any_element()
+    }
+    #[cfg(not(feature = "playwright"))]
+    text.into_any_element()
 }
 
 /// What clicking an element with `phx-click` does: send the event and its
