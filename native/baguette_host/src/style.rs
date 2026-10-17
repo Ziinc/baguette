@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
 
-use tauri_plugin_gpui::gpui::{FontWeight, Hsla, Rgba, Styled, px, rgb};
+use tauri_plugin_gpui::gpui::{FontWeight, Hsla, Rgba, Styled, px, relative, rgb};
 
 /// Theme tokens sent by Elixir, by name.
 pub type Theme = HashMap<String, String>;
@@ -58,6 +58,14 @@ fn apply_one<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         "flex-col" => s.flex().flex_col(),
         "flex-wrap" => s.flex_wrap(),
         "flex-1" => s.flex_1(),
+        "min-w-0" => s.min_w(px(0.)),
+        "items-stretch" => s.items_stretch(),
+        "text-right" => s.text_right(),
+        "text-center" => s.text_center(),
+        "font-mono" => s.font_family("monospace"),
+        "border-2" => s.border_2(),
+        "border-l-2" => s.border_l_2(),
+        "border-l-4" => s.border_l_4(),
         "grow" => s.flex_grow_1(),
         "shrink-0" => s.flex_shrink_0(),
         "items-start" => s.items_start(),
@@ -104,6 +112,17 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         .and_then(|n| n.parse::<f32>().ok())
     {
         return s.opacity(n / 100.);
+    }
+    // Percentages of the parent: `w-[40%]`, `h-[75%]`.
+    for (name, horizontal) in [("w-[", true), ("h-[", false)] {
+        if let Some(fraction) = class
+            .strip_prefix(name)
+            .and_then(|rest| rest.strip_suffix("%]"))
+            .and_then(|n| n.parse::<f32>().ok())
+        {
+            let len = relative(fraction / 100.);
+            return if horizontal { s.w(len) } else { s.h(len) };
+        }
     }
     const SPACING: &[&str] = &[
         "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr", "mx", "my", "mt", "mb", "p",
@@ -153,8 +172,12 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
     unknown(s, class)
 }
 
-/// Tailwind's spacing scale in pixels: `4` is 16px, `px` is 1px.
+/// Tailwind's spacing scale in pixels: `4` is 16px, `px` is 1px, and
+/// `[13px]` is exactly that.
 fn spacing(value: &str) -> Option<f32> {
+    if let Some(pixels) = value.strip_prefix('[').and_then(|v| v.strip_suffix("px]")) {
+        return pixels.parse().ok();
+    }
     match value {
         "px" => Some(1.),
         _ => value.parse::<f32>().ok().map(|n| n * 4.),
@@ -248,6 +271,7 @@ mod tests {
     fn spacing_uses_the_tailwind_scale() {
         assert_eq!(spacing("4"), Some(16.));
         assert_eq!(spacing("0.5"), Some(2.));
+        assert_eq!(spacing("[13px]"), Some(13.));
         assert_eq!(spacing("px"), Some(1.));
         assert_eq!(spacing("primary"), None);
     }

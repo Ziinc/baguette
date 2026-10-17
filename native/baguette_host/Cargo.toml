@@ -17,3 +17,9 @@ tauri = { version = "2.12", features = ["unstable"] }
 # Pinned to the tauri-gpui branch that moves it to gpui-pre =0.3.9, the
 # snapshot gpui-kit 0.7.3 uses. Switch to a release once that lands.
 tauri-plugin-gpui = { git = "https://github.com/ziinc/tauri-gpui", branch = "claude/project-thread-h8aiom" }
+# gpui-bootstrap's components as `bs-*` elements (see src/bootstrap.rs).
+gpui-kit = { version = "=0.7.3", optional = true }
+gpui-bootstrap = { git = "https://github.com/Ziinc/gpui-bootstrap", optional = true }
+
+[features]
+bootstrap = ["dep:gpui-kit", "dep:gpui-bootstrap"]

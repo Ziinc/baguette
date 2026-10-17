@@ -37,7 +37,8 @@ defmodule Baguette.View do
   defmacro __using__(_opts) do
     quote do
       @behaviour Baguette.View
-      import Phoenix.Component
+      # Function components (`attr`, `slot`) can live next to the view.
+      use Phoenix.Component
 
       def child_spec(opts) do
         %{

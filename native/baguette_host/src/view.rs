@@ -52,6 +52,10 @@ fn render_element(
     window: u32,
     theme: &Theme,
 ) -> AnyElement {
+    #[cfg(feature = "bootstrap")]
+    if let Some(element) = crate::bootstrap::render(tag, attrs, children, path, window, theme) {
+        return element;
+    }
     let classes = attrs.get("class").map(String::as_str).unwrap_or("");
     let disabled = attrs.contains_key("disabled");
     let base = style::apply(
@@ -83,16 +87,9 @@ fn render_element(
             el.aria_label(SharedString::from(label.clone()))
         });
 
-    let Some(event) = attrs.get("phx-click").filter(|_| !disabled) else {
+    let Some(on_click) = click_handler(window, attrs).filter(|_| !disabled) else {
         return element.into_any_element();
     };
-    let event = event.clone();
-    let values: BTreeMap<String, String> = attrs
-        .iter()
-        .filter_map(|(key, value)| {
-            Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone()))
-        })
-        .collect();
     let hover: Vec<String> = style::for_variant(classes, Variant::Hover)
         .map(str::to_owned)
         .collect();
@@ -103,19 +100,37 @@ fn render_element(
     element
         .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
         .active(move |s| style::apply(s, active.iter(), &active_theme))
-        .on_click(move |_, _, _| {
+        .on_click(on_click)
+        .into_any_element()
+}
+
+/// What clicking an element with `phx-click` does: send the event and its
+/// `phx-value-*` attributes to the view that owns `window`.
+pub fn click_handler(
+    window: u32,
+    attrs: &BTreeMap<String, String>,
+) -> Option<impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static> {
+    let event = attrs.get("phx-click")?.clone();
+    let values: BTreeMap<String, String> = attrs
+        .iter()
+        .filter_map(|(key, value)| {
+            Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone()))
+        })
+        .collect();
+    Some(
+        move |_: &gpui::ClickEvent, _: &mut gpui::Window, _: &mut gpui::App| {
             bridge::emit(&serde_json::json!({
                 "type": "click",
                 "window": window,
                 "event": event,
                 "values": values,
             }));
-        })
-        .into_any_element()
+        },
+    )
 }
 
 /// The text inside `nodes`, as one string.
-fn text_of(nodes: &[Node]) -> String {
+pub fn text_of(nodes: &[Node]) -> String {
     let mut parts = Vec::new();
     for node in nodes {
         match node {
