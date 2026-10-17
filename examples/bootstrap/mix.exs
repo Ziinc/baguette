@@ -9,7 +9,7 @@ defmodule BootstrapDemo.MixProject do
       deps: [{:baguette, path: "../.."}],
       releases: [
         bootstrap_demo: [
-          steps: [:assemble, &Baguette.Release.package/1],
+          steps: [:assemble, &Baguette.Release.package/1, &Baguette.Release.bundle/1],
           baguette: [
             host_features: ["bootstrap"],
             window: [title: "Release train", width: 720, height: 560]

@@ -64,10 +64,14 @@ fn main() {
                 let root = cx.new(|_| Root { window: 0, frame });
                 let handle = root.clone();
                 cx.spawn(async move |cx| {
+                    let mut first = true;
                     while let Ok(msg) = renders.recv().await {
                         // One window for now: the BEAM renders window 0.
                         if msg.window != 0 {
                             continue;
+                        }
+                        if std::mem::take(&mut first) {
+                            eprintln!("baguette: first frame from Elixir");
                         }
                         let frame = match serde_json::from_slice::<Frame>(&msg.json) {
                             Ok(frame) => frame,

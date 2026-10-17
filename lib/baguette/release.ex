@@ -65,17 +65,29 @@ defmodule Baguette.Release do
       steps: [:assemble, &Baguette.Release.package/1, &Baguette.Release.bundle/1],
       baguette: [bundles: ["deb", "appimage"], identifier: "com.example.my_app"]
 
-  Bundles default to `deb` and `appimage` on Linux and land in
-  `_build/<env>/bundle/<format>/`. Runs the Tauri CLI through `npx`, so Node
-  must be installed.
+  The step does nothing unless the release lists `bundles:` or
+  `BAGUETTE_BUNDLES` is set (`BAGUETTE_BUNDLES=deb,appimage mix release`),
+  which wins. Bundles land in `_build/<env>/bundle/<format>/`. It runs the
+  Tauri CLI through `npx`, so Node must be installed.
   """
   @spec bundle(Mix.Release.t()) :: Mix.Release.t()
   def bundle(%Mix.Release{} = release) do
     options = release.options[:baguette] || []
+
+    case System.get_env("BAGUETTE_BUNDLES") do
+      nil -> options[:bundles]
+      env -> String.split(env, ",", trim: true)
+    end
+    |> case do
+      empty when empty in [nil, []] -> release
+      bundles -> bundle(release, options, bundles)
+    end
+  end
+
+  defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
     features = options[:host_features] || []
     target_dir = target_dir(native, features)
-    bundles = options[:bundles] || ["deb", "appimage"]
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
 
@@ -112,10 +124,12 @@ defmodule Baguette.Release do
 
     out = Path.join(Mix.Project.build_path(), "bundle")
 
-    for format <- bundles do
-      from = Path.join([target_dir, "release", "bundle", format])
+    # Only the bundles themselves, not the bundler's staging directories.
+    for format <- bundles,
+        from <- Path.wildcard(Path.join([target_dir, "release", "bundle", format, "#{name}_*"])),
+        File.regular?(from) do
       File.mkdir_p!(Path.join(out, format))
-      File.cp_r!(from, Path.join(out, format))
+      File.cp!(from, Path.join([out, format, Path.basename(from)]))
     end
 
     Mix.shell().info([:green, "* bundled ", :reset, Path.relative_to_cwd(out)])

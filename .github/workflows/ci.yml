@@ -75,7 +75,7 @@ jobs:
             libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev mesa-vulkan-drivers \
             libwayland-dev libx11-xcb-dev libfontconfig-dev libfreetype-dev libgbm-dev \
             libegl-dev libxrandr-dev clang libncurses-dev fonts-dejavu xvfb openbox xdotool \
-            imagemagick python3-gi at-spi2-core gir1.2-atspi-2.0
+            imagemagick python3-gi at-spi2-core gir1.2-atspi-2.0 libfuse2t64 file
       - uses: actions/cache@v4
         id: liberlang
         with:
@@ -98,8 +98,19 @@ jobs:
       - name: Counter release, clicked through AT-SPI
         run: scripts/e2e-linux.sh e2e-screenshots
         timeout-minutes: 20
+      - name: Tauri bundles (deb, AppImage) install and boot the release
+        run: scripts/bundle-test-linux.sh examples/broadway Firehose bundle-test
+        timeout-minutes: 30
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: e2e-screenshots
-          path: e2e-screenshots
+          path: |
+            e2e-screenshots
+            bundle-test
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firehose-linux-bundles
+          path: |
+            examples/broadway/_build/prod/bundle/deb/*.deb
+            examples/broadway/_build/prod/bundle/appimage/*.AppImage
