@@ -29,9 +29,10 @@ MIX_ENV=prod mix release
 _build/prod/rel/firehose/bin/firehose_app
 ```
 
-The host links `liberlang.a`; build it once with
-`scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang`, set
-`BAGUETTE_LIBERLANG=~/liberlang` and put `~/liberlang/otp/bin` on `PATH`.
+The host links a prebuilt BEAM (`liberlang.a`) for your OTP version, which
+`mix release` downloads and checks against a pinned SHA-256. To use your own,
+build it with `scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang` and set
+`BAGUETTE_LIBERLANG=~/liberlang`.
 
 ## A view
 
@@ -101,6 +102,23 @@ mix test
 (cd native && cargo test)
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```
+
+## Releasing
+
+Pushing a `v*` tag runs CI and publishes the Firehose builds as a GitHub
+release: `.deb` and AppImage, `.dmg` for Apple silicon and Intel, and a
+signed Android APK and AAB. Signing comes from repository secrets:
+
+- Android: `ANDROID_KEYSTORE` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`,
+  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them the build is signed
+  with a throwaway key, which Google Play rejects.
+- macOS: Tauri's `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
+  `APPLE_SIGNING_IDENTITY`, and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
+  to notarize. Without them the app is unsigned.
+
+The prebuilt BEAMs come from the `liberlang` workflow, which publishes
+`liberlang-OTP-<version>` once per OTP version; pin the checksums from its
+summary in `priv/liberlang.sha256`.
 
 ## License
 
