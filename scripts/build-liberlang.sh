@@ -18,11 +18,14 @@ fi
 
 cd "$src"
 export ERL_TOP="$src" RELEASE_LIBBEAM=yes
+# macOS has no system OpenSSL headers; crypto builds against Homebrew's.
+ssl=()
+if [ "$(uname)" = Darwin ]; then ssl=(--with-ssl="$(brew --prefix openssl@3)"); fi
 if [ ! -f "$out/otp/bin/erl" ]; then
   ./configure --prefix="$out/otp" \
     --without-javac --without-odbc --without-wx --without-debugger --without-observer --without-et \
-    --enable-builtin-zlib CFLAGS="-O2 -fPIC"
-  make -j"$(nproc)"
+    --enable-builtin-zlib ${ssl[@]+"${ssl[@]}"} CFLAGS="-O2 -fPIC"
+  make -j"$(getconf _NPROCESSORS_ONLN)"
   make install
 fi
 
@@ -36,11 +39,16 @@ archives=(
   "erts/emulator/zstd/obj/$target/opt/libzstd.a"
   "erts/emulator/zlib/obj/$target/opt/libz.a"
 )
-{
-  echo "CREATE $out/liberlang.a"
-  for archive in "${archives[@]}"; do echo "ADDLIB $src/$archive"; done
-  echo "SAVE"
-  echo "END"
-} | ar -M
-ranlib "$out/liberlang.a"
+rm -f "$out/liberlang.a"
+if [ "$(uname)" = Darwin ]; then
+  libtool -static -o "$out/liberlang.a" "${archives[@]}"
+else
+  {
+    echo "CREATE $out/liberlang.a"
+    for archive in "${archives[@]}"; do echo "ADDLIB $src/$archive"; done
+    echo "SAVE"
+    echo "END"
+  } | ar -M
+  ranlib "$out/liberlang.a"
+fi
 echo "built $out/liberlang.a"

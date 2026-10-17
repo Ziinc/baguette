@@ -6,3 +6,8 @@ members = ["baguette_abi", "baguette_nif", "baguette_host"]
 # SwiftShader Vulkan rejects the SPIR-V that produces.
 [profile.dev.package.wgpu-types]
 debug-assertions = false
+
+# Release binaries ship to users: no symbols (they made the Android host
+# library hundreds of MB).
+[profile.release]
+strip = true

@@ -16,9 +16,11 @@ defmodule Baguette.Release do
 
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
-  The host links `liberlang.a` from `$BAGUETTE_LIBERLANG`. Build the release
-  with the OTP that archive came from (`scripts/build-liberlang.sh` installs
-  one next to it), so the release's ERTS and the linked BEAM match.
+  The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
+  `mix release`. It is downloaded from Baguette's GitHub releases, checked
+  against a pinned SHA-256 and cached under the user cache directory. Set
+  `BAGUETTE_LIBERLANG` to a directory holding your own `liberlang.a` (from
+  `scripts/build-liberlang.sh`) to skip the download.
 
   With `BAGUETTE_ANDROID` set, `package/1` and `bundle/1` step aside and
   `android/1` builds an APK instead.
@@ -35,7 +37,7 @@ defmodule Baguette.Release do
   end
 
   defp package_desktop(release) do
-    liberlang = liberlang!()
+    liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
     features = get_in(release.options, [:baguette, :host_features]) || []
     target_dir = target_dir(native, features)
@@ -126,7 +128,7 @@ defmodule Baguette.Release do
           bundles ++ Enum.flat_map(features, &["--features", &1]),
         cd: Path.join(native, "baguette_host"),
         env: [
-          {"BAGUETTE_LIBERLANG", liberlang!()},
+          {"BAGUETTE_LIBERLANG", desktop_liberlang!()},
           {"CARGO_TARGET_DIR", target_dir},
           {"NO_STRIP", "true"}
         ],
@@ -157,11 +159,18 @@ defmodule Baguette.Release do
   embedded in the host library, which unpacks it on first launch. The APK
   also carries the BEAM (`liberlang.so`), its port programs
   (`erl_child_setup`, `inet_gethost`) and Baguette's NIF as native libraries.
-  `BAGUETTE_LIBERLANG` must hold `<target>/liberlang.so` and both port
-  programs for each ABI, from
-  `scripts/build-liberlang-android.sh` with the OTP this release was built
-  with. Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java and
-  Node. The debug-signed APK lands in `_build/<env>/android/<name>.apk`.
+  They are downloaded like the desktop BEAM; a `BAGUETTE_LIBERLANG` of your
+  own must hold `<target>/liberlang.so` and both port programs for each ABI,
+  from `scripts/build-liberlang-android.sh` with the OTP this release was
+  built with. Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java and
+  Node.
+
+  Without a signing key the step builds a debug-signed APK. With
+  `BAGUETTE_ANDROID_KEYSTORE` (a keystore file),
+  `BAGUETTE_ANDROID_KEYSTORE_PASSWORD`, `BAGUETTE_ANDROID_KEY_ALIAS` and
+  `BAGUETTE_ANDROID_KEY_PASSWORD` set it builds an optimised release, signed
+  with that key, as an APK to install and an AAB for Google Play. Both land in
+  `_build/<env>/android/` as `<name>.apk` and `<name>.aab`.
   """
   @spec android(Mix.Release.t()) :: Mix.Release.t()
   def android(%Mix.Release{} = release) do
@@ -176,13 +185,14 @@ defmodule Baguette.Release do
     name = Atom.to_string(release.name)
     host = Path.join([baguette_root(), "native", "baguette_host"])
     out = Path.join(Mix.Project.build_path(), "android")
-    liberlang = liberlang!()
     File.mkdir_p!(out)
 
     abis =
       for abi <- abis do
         Map.get(@android_abis, abi) || Mix.raise("unknown Android ABI #{abi} (x86_64 or arm64)")
       end
+
+    liberlang = android_liberlang!(Enum.map(abis, & &1.triple))
 
     # The release without the build machine's ERTS: the BEAM is liberlang.so.
     archive = Path.join(out, "release.tar.gz")
@@ -214,7 +224,8 @@ defmodule Baguette.Release do
     run!(host, "npm", ["install", "--no-audit", "--no-fund"], env)
     File.rm_rf!(Path.join(host, "gen/android"))
     run!(host, "npm", ["run", "tauri", "--", "android", "init", "--ci", "--config", config], env)
-    patch_gradle!(Path.join(host, "gen/android/app/build.gradle.kts"))
+    signed? = System.get_env("BAGUETTE_ANDROID_KEYSTORE") not in [nil, ""]
+    patch_gradle!(Path.join(host, "gen/android/app/build.gradle.kts"), signed?)
 
     # Native libraries the app loads or runs besides the host itself.
     for abi <- abis do
@@ -253,16 +264,23 @@ defmodule Baguette.Release do
     run!(
       host,
       "npm",
-      ["run", "tauri", "--", "android", "build", "--debug", "--apk", "--ci", "--config", config] ++
+      ["run", "tauri", "--", "android", "build", "--ci", "--config", config] ++
+        if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
         Enum.flat_map(abis, &["--target", &1.tauri]) ++
         Enum.flat_map(features, &["--features", &1]),
       env
     )
 
-    [apk | _] = Path.wildcard(Path.join(host, "gen/android/app/build/outputs/apk/**/*.apk"))
-    target = Path.join(out, "#{name}.apk")
-    File.cp!(apk, target)
-    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(target)])
+    outputs = Path.join(host, "gen/android/app/build/outputs")
+    File.rm(Path.join(out, "#{name}.aab"))
+
+    for ext <- if(signed?, do: ["apk", "aab"], else: ["apk"]) do
+      [built | _] = Path.wildcard(Path.join(outputs, "**/*.#{ext}"))
+      target = Path.join(out, "#{name}.#{ext}")
+      File.cp!(built, target)
+      Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(target)])
+    end
+
     release
   end
 
@@ -277,18 +295,42 @@ defmodule Baguette.Release do
 
   # Android only runs executables extracted from the APK, so native libraries
   # (erl_child_setup among them) are installed as files, not mapped from it.
-  defp patch_gradle!(path) do
-    gradle = File.read!(path)
+  # A release is signed with the key the BAGUETTE_ANDROID_KEY* variables name.
+  defp patch_gradle!(path, signed?) do
+    signing = """
+        signingConfigs {
+            create("release") {
+                storeFile = file(System.getenv("BAGUETTE_ANDROID_KEYSTORE"))
+                storePassword = System.getenv("BAGUETTE_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("BAGUETTE_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("BAGUETTE_ANDROID_KEY_PASSWORD")
+            }
+        }
+    """
 
-    File.write!(
-      path,
-      String.replace(
-        gradle,
-        ~r/^android \{/m,
-        "android {\n    packaging { jniLibs { useLegacyPackaging = true } }",
+    gradle =
+      path
+      |> File.read!()
+      |> String.replace(
+        ~r/^android \{\n/m,
+        "android {\n    packaging { jniLibs { useLegacyPackaging = true } }\n" <>
+          if(signed?, do: signing, else: ""),
         global: false
       )
-    )
+
+    gradle =
+      if signed? do
+        String.replace(
+          gradle,
+          ~s/getByName("release") {\n/,
+          ~s/getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n/,
+          global: false
+        )
+      else
+        gradle
+      end
+
+    File.write!(path, gradle)
   end
 
   defp run!(dir, command, args, env) do
@@ -300,8 +342,104 @@ defmodule Baguette.Release do
     end
   end
 
-  defp liberlang! do
-    System.get_env("BAGUETTE_LIBERLANG") || Mix.raise("BAGUETTE_LIBERLANG is not set")
+  @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
+
+  defp desktop_liberlang! do
+    case System.get_env("BAGUETTE_LIBERLANG") do
+      dir when dir not in [nil, ""] ->
+        dir
+
+      _ ->
+        target = desktop_target()
+        Path.join(download_liberlang!([target]), target)
+    end
+  end
+
+  defp android_liberlang!(triples) do
+    case System.get_env("BAGUETTE_LIBERLANG") do
+      dir when dir not in [nil, ""] -> dir
+      _ -> download_liberlang!(triples)
+    end
+  end
+
+  defp desktop_target do
+    arch = :erlang.system_info(:system_architecture) |> List.to_string()
+    cpu = if String.starts_with?(arch, ["aarch64", "arm64"]), do: "aarch64", else: "x86_64"
+
+    case :os.type() do
+      {:unix, :linux} -> "#{cpu}-linux"
+      {:unix, :darwin} -> "#{cpu}-macos"
+      os -> Mix.raise("no prebuilt BEAM for #{inspect(os)}; set BAGUETTE_LIBERLANG")
+    end
+  end
+
+  # Downloads and unpacks each target's BEAM into the user cache, returning
+  # the directory that holds one subdirectory per target.
+  defp download_liberlang!(targets) do
+    otp = otp_version()
+    root = Path.join([:filename.basedir(:user_cache, "baguette"), "liberlang", otp])
+
+    for target <- targets, not File.dir?(Path.join(root, target)) do
+      asset = "liberlang-OTP-#{otp}-#{target}.tar.gz"
+
+      sha256 =
+        Map.get(liberlang_sha256(), asset) ||
+          Mix.raise(
+            "no prebuilt BEAM for OTP #{otp} on #{target}; " <>
+              "use a supported OTP or set BAGUETTE_LIBERLANG"
+          )
+
+      url = "#{@liberlang_releases}/liberlang-OTP-#{otp}/#{asset}"
+      Mix.shell().info([:green, "* downloading ", :reset, url])
+      body = http_get!(url)
+
+      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256 do
+        Mix.raise("#{asset} does not match its pinned SHA-256")
+      end
+
+      partial = Path.join(root, "#{target}.partial")
+      File.rm_rf!(partial)
+      File.mkdir_p!(partial)
+      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
+      File.rename!(partial, Path.join(root, target))
+    end
+
+    root
+  end
+
+  # `sha256sum` output for every published asset, from the liberlang workflow.
+  defp liberlang_sha256 do
+    for line <-
+          File.read!(Path.join(baguette_root(), "priv/liberlang.sha256")) |> String.split("\n"),
+        not String.starts_with?(line, "#"),
+        [sha, file] <- [String.split(line, ~r/\s+\*?/, parts: 2, trim: true)],
+        into: %{},
+        do: {file, sha}
+  end
+
+  defp otp_version do
+    [:code.root_dir(), "releases", :erlang.system_info(:otp_release), "OTP_VERSION"]
+    |> Path.join()
+    |> File.read!()
+    |> String.trim()
+  end
+
+  defp http_get!(url) do
+    {:ok, _} = Application.ensure_all_started([:ssl, :inets])
+
+    ssl = [
+      verify: :verify_peer,
+      cacerts: :public_key.cacerts_get(),
+      customize_hostname_check: [match_fun: :public_key.pkix_verify_hostname_match_fun(:https)]
+    ]
+
+    case :httpc.request(:get, {String.to_charlist(url), []}, [ssl: ssl, autoredirect: true],
+           body_format: :binary
+         ) do
+      {:ok, {{_, 200, _}, _, body}} -> body
+      {:ok, {{_, status, _}, _, _}} -> Mix.raise("GET #{url} returned #{status}")
+      {:error, reason} -> Mix.raise("GET #{url} failed: #{inspect(reason)}")
+    end
   end
 
   defp target_dir(native, features) do
