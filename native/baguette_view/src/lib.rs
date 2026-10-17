@@ -123,7 +123,10 @@ fn render_element(
             el.aria_label(SharedString::from(label))
         });
 
-    let Some(on_click) = click_handler(scope, attrs).filter(|_| !disabled) else {
+    if disabled {
+        return observed(Disabled(element));
+    }
+    let Some(on_click) = click_handler(scope, attrs) else {
         return observed(element);
     };
     #[cfg(target_os = "android")]
@@ -146,11 +149,106 @@ fn render_element(
 }
 
 /// With `test-support`, registers `element` for gpui-testing-library queries.
-fn observed(element: gpui::Stateful<gpui::Div>) -> AnyElement {
+fn observed<E>(element: E) -> AnyElement
+where
+    E: gpui::Element<PrepaintState = Option<gpui::Hitbox>> + InteractiveElement,
+{
     #[cfg(feature = "test-support")]
     return gpui_base::TestSupportExt::test_support(element).into_any_element();
     #[cfg(not(feature = "test-support"))]
     element.into_any_element()
+}
+
+/// Reports its element as disabled to screen readers and test queries; GPUI's
+/// `div` has no builder for AccessKit's disabled flag.
+struct Disabled<E>(E);
+
+impl<E: gpui::Element> IntoElement for Disabled<E> {
+    type Element = Self;
+
+    fn into_element(self) -> Self {
+        self
+    }
+}
+
+impl<E: InteractiveElement> InteractiveElement for Disabled<E> {
+    fn interactivity(&mut self) -> &mut gpui::Interactivity {
+        self.0.interactivity()
+    }
+}
+
+impl<E: gpui::Element> gpui::Element for Disabled<E> {
+    type RequestLayoutState = E::RequestLayoutState;
+    type PrepaintState = E::PrepaintState;
+
+    fn id(&self) -> Option<gpui::ElementId> {
+        self.0.id()
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        self.0.source_location()
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        inspector_id: Option<&gpui::InspectorElementId>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        self.0.request_layout(id, inspector_id, window, cx)
+    }
+
+    fn prepaint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        inspector_id: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        window: &mut gpui::Window,
+        cx: &mut gpui::App,
+    ) -> Self::PrepaintState {
+        self.0
+            .prepaint(id, inspector_id, bounds, request_layout, window, cx)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        inspector_id: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<gpui::Pixels>,
+        request_layout: &mut Self::RequestLayoutState,
+        prepaint: &mut Self::PrepaintState,
+        window: &mut gpui::Window,
+        cx: &mut gpui::App,
+    ) {
+        self.0.paint(
+            id,
+            inspector_id,
+            bounds,
+            request_layout,
+            prepaint,
+            window,
+            cx,
+        )
+    }
+
+    fn a11y_role(&self) -> Option<gpui::accesskit::Role> {
+        self.0.a11y_role()
+    }
+
+    fn write_a11y_info(&self, node: &mut gpui::accesskit::Node) {
+        self.0.write_a11y_info(node);
+        node.set_disabled();
+    }
+
+    fn a11y_synthetic_children(
+        &mut self,
+        prepaint: &mut Self::PrepaintState,
+        builder: &mut gpui::A11ySubtreeBuilder,
+    ) {
+        self.0.a11y_synthetic_children(prepaint, builder)
+    }
 }
 
 /// An element's `aria-label`, or for a button its text, as a browser names a

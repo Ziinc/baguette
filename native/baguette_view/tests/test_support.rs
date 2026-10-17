@@ -41,6 +41,14 @@ fn renders_elixir_trees_for_queries(cx: &mut TestAppContext) {
     // A button without `aria-label` is named by its text.
     let inc = named("+");
     let reset = named("Reset");
+    let disabled = |name| {
+        elements
+            .iter()
+            .find(|el| el.label() == Some(name))
+            .and_then(|el| el.disabled())
+    };
+    assert_eq!(disabled("+"), None);
+    assert_eq!(disabled("Reset"), Some(true));
 
     cx.simulate_click(inc.center(), Modifiers::none());
     cx.simulate_click(reset.center(), Modifiers::none());
