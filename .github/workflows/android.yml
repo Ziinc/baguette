@@ -88,3 +88,59 @@ jobs:
         with:
           name: android-smoke
           path: android-smoke
+
+  phone:
+    # The same APK for arm64 phones, to install by hand (not run here).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29.1.2"
+          elixir-version: "1.20.4"
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: android-arm64
+          workspaces: native
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;$NDK_VERSION"
+          echo "NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - uses: actions/cache@v4
+        id: liberlang
+        with:
+          path: ~/liberlang-android/aarch64-linux-android
+          key: liberlang-android-arm64-${{ env.OTP_TAG }}-${{ env.NDK_VERSION }}-${{ hashFiles('scripts/build-liberlang-android.sh') }}
+      - name: Cross-build OTP for Android
+        if: steps.liberlang.outputs.cache-hit != 'true'
+        run: |
+          scripts/build-liberlang-android.sh "$OTP_TAG" arm64 ~/liberlang-build
+          mkdir -p ~/liberlang-android/aarch64-linux-android
+          cp ~/liberlang-build/{liberlang.so,erl_child_setup,inet_gethost} ~/liberlang-android/aarch64-linux-android/
+      - name: Build the Firehose APK
+        working-directory: examples/broadway
+        env:
+          BAGUETTE_ANDROID: arm64
+          MIX_ENV: prod
+        run: |
+          export BAGUETTE_LIBERLANG=$HOME/liberlang-android
+          mix local.hex --force && mix local.rebar --force
+          mix deps.get
+          mix release --overwrite
+          cp _build/prod/android/firehose.apk "$RUNNER_TEMP/firehose-arm64.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: firehose-apk-arm64
+          path: ${{ runner.temp }}/firehose-arm64.apk
