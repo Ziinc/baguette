@@ -152,7 +152,11 @@ fn report_bounds(label: String) -> impl IntoElement {
         },
         |_, _, _, _| {},
     )
+    // Pinned to the control's corner: unpinned, an absolute child sits where
+    // it would have flowed, after the label.
     .absolute()
+    .top_0()
+    .left_0()
     .size_full()
 }
 
