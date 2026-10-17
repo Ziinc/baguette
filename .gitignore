@@ -10,3 +10,4 @@ erl_crash.dump
 /priv/native/
 /examples/*/_build/
 /examples/*/deps/
+/native/baguette_host/node_modules/

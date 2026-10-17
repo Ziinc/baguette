@@ -5,6 +5,7 @@ defmodule Firehose.Dashboard do
   `Firehose.Stats` ten times a second; the pipeline never talks to it.
   """
   use Baguette.View
+  require Logger
 
   @sample 100
   # Rates are averaged over this many samples (half a second), since batches
@@ -26,6 +27,8 @@ defmodule Firehose.Dashboard do
        now: snapshot,
        history: List.duplicate(0, @history),
        span: 0,
+       samples: 0,
+       mobile: Baguette.mobile?(),
        tick: 0,
        rate: 400,
        paused: false,
@@ -40,10 +43,16 @@ defmodule Firehose.Dashboard do
     span = length(snaps) - 1
     acked = per_second(now.acked + now.failed - last.acked - last.failed, span)
 
+    # A heartbeat for logs (logcat on Android), every two seconds.
+    if rem(assigns.samples, 20) == 0 do
+      Logger.info("firehose: acked=#{now.acked} failed=#{now.failed} dropped=#{now.dropped}")
+    end
+
     {:noreply,
      %{
        assigns
        | snaps: snaps,
+         samples: assigns.samples + 1,
          span: span,
          last: last,
          now: now,
@@ -61,12 +70,14 @@ defmodule Firehose.Dashboard do
     i = Enum.find_index(@rates, &(&1 == assigns.rate)) + String.to_integer(step)
     rate = Enum.at(@rates, i |> max(0) |> min(length(@rates) - 1))
     Firehose.Producer.set_rate(rate)
+    Logger.info("firehose: rate=#{rate}")
     {:noreply, %{assigns | rate: rate}}
   end
 
   def handle_event("chaos", _, assigns) do
     chaos = if assigns.chaos == 0, do: 10, else: 0
     Firehose.Pipeline.set_chaos(chaos)
+    Logger.info("firehose: chaos=#{chaos}")
     {:noreply, %{assigns | chaos: chaos}}
   end
 
@@ -107,83 +118,32 @@ defmodule Firehose.Dashboard do
       })
 
     ~H"""
-    <div class="size-full flex-col gap-3 p-4 bg-bg text-fg">
+    <div :if={not @mobile} class="size-full flex-col gap-3 p-4 bg-bg text-fg">
       <div class="flex-row items-center justify-between">
-        <div class="flex-col gap-1">
-          <text class="text-2xl font-bold">Firehose</text>
-          <text class="text-sm text-muted">
-            A Broadway pipeline, drawn live by GPUI from Elixir
-          </text>
-        </div>
-        <div class="flex-row items-center gap-2">
-          <.control phx-click="pause" aria-label={if @paused, do: "Resume", else: "Pause"}>
-            {if @paused, do: "▶ Resume", else: "❚❚ Pause"}
-          </.control>
-          <.control phx-click="rate" phx-value-step="-1" aria-label="Slower">−</.control>
-          <text class="w-24 text-center font-bold" aria-label="Rate">{@rate}/s</text>
-          <.control phx-click="rate" phx-value-step="1" aria-label="Faster">+</.control>
-          <.control phx-click="chaos" aria-label="Chaos" active={@chaos > 0}>
-            Chaos {@chaos}%
-          </.control>
-        </div>
+        <.heading />
+        <.controls paused={@paused} rate={@rate} chaos={@chaos} />
       </div>
 
       <div class="flex-row gap-2 h-[300px]">
         <.stage title="Producer" subtitle="synthetic events">
-          <.metric value={@produced} unit="events/s" />
-          <.bar label="buffer" value={@now.buffered} max={2000} color="accent" />
-          <text class="text-xs text-muted">produced {@now.produced}</text>
-          <text class="text-xs text-muted">dropped {@now.dropped}</text>
+          <.producer produced={@produced} now={@now} />
         </.stage>
         <.flow tick={@tick} />
         <.stage title="Processors" subtitle="concurrency 4">
-          <div :for={p <- @processors} class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
-            <div class="flex-row justify-between">
-              <text class="text-xs text-muted">processor {p.index}</text>
-              <text class="text-xs font-bold">{p.rate}/s</text>
-            </div>
-            <.bar value={p.load} max={100} color={load_color(p.load)} />
-          </div>
+          <.processor :for={p <- @processors} p={p} />
         </.stage>
         <.flow tick={@tick} />
         <.stage title="Batchers" subtitle="by destination">
-          <div :for={b <- @batchers} class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
-            <div class="flex-row justify-between">
-              <text class="text-sm font-bold">{b.name}</text>
-              <text class="text-xs text-muted">{b.rate}/s</text>
-            </div>
-            <.bar label={"fill #{b.size}/#{b.max}"} value={b.size} max={b.max} color="click" />
-            <text class="text-xs text-muted">{b.total} batches</text>
-          </div>
+          <.batcher :for={b <- @batchers} b={b} />
         </.stage>
         <.flow tick={@tick} />
         <.stage title="Acknowledged" subtitle="end of the line">
-          <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
-            <text class="text-xs text-muted">acked</text>
-            <text class="text-2xl font-bold text-ok">{@now.acked}</text>
-          </div>
-          <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
-            <text class="text-xs text-muted">failed</text>
-            <text class={"text-2xl font-bold #{if @now.failed > 0, do: "text-bad", else: "text-muted"}"}>
-              {@now.failed}
-            </text>
-          </div>
+          <.acks now={@now} />
         </.stage>
       </div>
 
       <div class="flex-row gap-4 flex-1">
-        <div class="flex-col gap-2 p-3 rounded-lg bg-panel border border-edge flex-1">
-          <div class="flex-row justify-between">
-            <text class="text-sm font-bold">Throughput</text>
-            <text class="text-sm text-muted">{@throughput} msg/s · peak {@peak}</text>
-          </div>
-          <div class="flex-row items-end gap-[2px] flex-1">
-            <div
-              :for={v <- @history}
-              class={"flex-1 rounded-sm bg-accent h-[#{max(round(v / @peak * 100), 2)}%]"}
-            />
-          </div>
-        </div>
+        <.throughput history={@history} throughput={@throughput} peak={@peak} />
         <div class="flex-col gap-1 p-3 rounded-lg bg-panel border border-edge w-[320px]">
           <text class="text-sm font-bold">Latest batched events</text>
           <div :for={e <- @now.recent} class="flex-row items-center gap-2">
@@ -194,6 +154,136 @@ defmodule Firehose.Dashboard do
             <text class="text-xs text-muted">→ {e.batcher}</text>
           </div>
         </div>
+      </div>
+    </div>
+
+    <div :if={@mobile} class="size-full flex-col gap-3 px-4 pt-12 pb-6 bg-bg text-fg">
+      <.heading />
+      <.controls paused={@paused} rate={@rate} chaos={@chaos} />
+      <div class="flex-row gap-2">
+        <.stage title="Producer" subtitle="synthetic events">
+          <.producer produced={@produced} now={@now} />
+        </.stage>
+        <.stage title="Acknowledged" subtitle="end of the line">
+          <.acks now={@now} />
+        </.stage>
+      </div>
+      <div class="flex-row gap-2">
+        <.stage title="Processors" subtitle="concurrency 4">
+          <.processor :for={p <- @processors} p={p} />
+        </.stage>
+        <.stage title="Batchers" subtitle="by destination">
+          <.batcher :for={b <- @batchers} b={b} />
+        </.stage>
+      </div>
+      <.throughput history={@history} throughput={@throughput} peak={@peak} />
+    </div>
+    """
+  end
+
+  defp heading(assigns) do
+    ~H"""
+    <div class="flex-col gap-1">
+      <text class="text-2xl font-bold">Firehose</text>
+      <text class="text-sm text-muted">A Broadway pipeline, drawn live by GPUI from Elixir</text>
+    </div>
+    """
+  end
+
+  attr(:paused, :boolean, required: true)
+  attr(:rate, :integer, required: true)
+  attr(:chaos, :integer, required: true)
+
+  defp controls(assigns) do
+    ~H"""
+    <div class="flex-row items-center gap-2">
+      <.control phx-click="pause" aria-label={if @paused, do: "Resume", else: "Pause"}>
+        {if @paused, do: "▶ Resume", else: "❚❚ Pause"}
+      </.control>
+      <.control phx-click="rate" phx-value-step="-1" aria-label="Slower">−</.control>
+      <text class="w-20 text-center font-bold" aria-label="Rate">{@rate}/s</text>
+      <.control phx-click="rate" phx-value-step="1" aria-label="Faster">+</.control>
+      <.control phx-click="chaos" aria-label="Chaos" active={@chaos > 0}>
+        Chaos {@chaos}%
+      </.control>
+    </div>
+    """
+  end
+
+  attr(:produced, :integer, required: true)
+  attr(:now, :map, required: true)
+
+  defp producer(assigns) do
+    ~H"""
+    <.metric value={@produced} unit="events/s" />
+    <.bar label="buffer" value={@now.buffered} max={2000} color="accent" />
+    <text class="text-xs text-muted">produced {@now.produced}</text>
+    <text class="text-xs text-muted">dropped {@now.dropped}</text>
+    """
+  end
+
+  attr(:p, :map, required: true)
+
+  defp processor(assigns) do
+    ~H"""
+    <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
+      <div class="flex-row justify-between">
+        <text class="text-xs text-muted">processor {@p.index}</text>
+        <text class="text-xs font-bold">{@p.rate}/s</text>
+      </div>
+      <.bar value={@p.load} max={100} color={load_color(@p.load)} />
+    </div>
+    """
+  end
+
+  attr(:b, :map, required: true)
+
+  defp batcher(assigns) do
+    ~H"""
+    <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
+      <div class="flex-row justify-between">
+        <text class="text-sm font-bold">{@b.name}</text>
+        <text class="text-xs text-muted">{@b.rate}/s</text>
+      </div>
+      <.bar label={"fill #{@b.size}/#{@b.max}"} value={@b.size} max={@b.max} color="click" />
+      <text class="text-xs text-muted">{@b.total} batches</text>
+    </div>
+    """
+  end
+
+  attr(:now, :map, required: true)
+
+  defp acks(assigns) do
+    ~H"""
+    <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
+      <text class="text-xs text-muted">acked</text>
+      <text class="text-2xl font-bold text-ok">{@now.acked}</text>
+    </div>
+    <div class="flex-col gap-1 p-2 rounded-md bg-panel-hi">
+      <text class="text-xs text-muted">failed</text>
+      <text class={"text-2xl font-bold #{if @now.failed > 0, do: "text-bad", else: "text-muted"}"}>
+        {@now.failed}
+      </text>
+    </div>
+    """
+  end
+
+  attr(:history, :list, required: true)
+  attr(:throughput, :integer, required: true)
+  attr(:peak, :integer, required: true)
+
+  defp throughput(assigns) do
+    ~H"""
+    <div class="flex-col gap-2 p-3 rounded-lg bg-panel border border-edge flex-1">
+      <div class="flex-row justify-between">
+        <text class="text-sm font-bold">Throughput</text>
+        <text class="text-sm text-muted">{@throughput} msg/s · peak {@peak}</text>
+      </div>
+      <div class="flex-row items-end gap-[2px] flex-1">
+        <div
+          :for={v <- @history}
+          class={"flex-1 rounded-sm bg-accent h-[#{max(round(v / @peak * 100), 2)}%]"}
+        />
       </div>
     </div>
     """

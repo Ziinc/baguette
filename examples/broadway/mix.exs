@@ -9,7 +9,12 @@ defmodule Firehose.MixProject do
       deps: [{:baguette, path: "../.."}, {:broadway, "~> 1.2"}],
       releases: [
         firehose: [
-          steps: [:assemble, &Baguette.Release.package/1, &Baguette.Release.bundle/1],
+          steps: [
+            :assemble,
+            &Baguette.Release.package/1,
+            &Baguette.Release.bundle/1,
+            &Baguette.Release.android/1
+          ],
           baguette: [window: [title: "Firehose", width: 960, height: 640]]
         ]
       ]

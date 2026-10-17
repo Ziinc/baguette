@@ -90,6 +90,10 @@ fn render_element(
     let Some(on_click) = click_handler(window, attrs).filter(|_| !disabled) else {
         return element.into_any_element();
     };
+    #[cfg(target_os = "android")]
+    let element = element.when_some(attrs.get("aria-label"), |el, label| {
+        el.child(report_bounds(label.clone()))
+    });
     let hover: Vec<String> = style::for_variant(classes, Variant::Hover)
         .map(str::to_owned)
         .collect();
@@ -127,6 +131,33 @@ pub fn click_handler(
             }));
         },
     )
+}
+
+/// Logs where a labelled control is on screen, in device pixels, whenever
+/// that changes: `adb shell input tap` needs them, as the Android smoke test
+/// has no accessibility tree to find controls by.
+#[cfg(target_os = "android")]
+fn report_bounds(label: String) -> impl IntoElement {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    static REPORTED: Mutex<Option<HashMap<String, (i32, i32)>>> = Mutex::new(None);
+    gpui::canvas(
+        move |bounds, window, _| {
+            let scale = window.scale_factor();
+            let center = bounds.center();
+            let at = (
+                (f32::from(center.x) * scale) as i32,
+                (f32::from(center.y) * scale) as i32,
+            );
+            let mut reported = REPORTED.lock().unwrap();
+            if reported.get_or_insert_default().insert(label.clone(), at) != Some(at) {
+                crate::log_line(&format!("baguette: bounds {label} {} {}", at.0, at.1));
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full()
 }
 
 /// The text inside `nodes`, as one string.

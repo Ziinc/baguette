@@ -20,10 +20,22 @@ defmodule Baguette.Release do
   The host links `liberlang.a` from `$BAGUETTE_LIBERLANG`. Build the release
   with the OTP that archive came from (`scripts/build-liberlang.sh` installs
   one next to it), so the release's ERTS and the linked BEAM match.
+
+  With `BAGUETTE_ANDROID` set, `package/1` and `bundle/1` step aside and
+  `android/1` builds an APK instead.
   """
+
+  @android_abis %{
+    "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
+    "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
+  }
 
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
+    if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
+  end
+
+  defp package_desktop(release) do
     liberlang = liberlang!()
     native = Path.join(baguette_root(), "native")
     features = get_in(release.options, [:baguette, :host_features]) || []
@@ -74,14 +86,14 @@ defmodule Baguette.Release do
   def bundle(%Mix.Release{} = release) do
     options = release.options[:baguette] || []
 
-    case System.get_env("BAGUETTE_BUNDLES") do
-      nil -> options[:bundles]
-      env -> String.split(env, ",", trim: true)
-    end
-    |> case do
-      empty when empty in [nil, []] -> release
-      bundles -> bundle(release, options, bundles)
-    end
+    bundles =
+      cond do
+        System.get_env("BAGUETTE_ANDROID") -> []
+        env = System.get_env("BAGUETTE_BUNDLES") -> String.split(env, ",", trim: true)
+        true -> options[:bundles] || []
+      end
+
+    if bundles == [], do: release, else: bundle(release, options, bundles)
   end
 
   defp bundle(release, options, bundles) do
@@ -134,6 +146,157 @@ defmodule Baguette.Release do
 
     Mix.shell().info([:green, "* bundled ", :reset, Path.relative_to_cwd(out)])
     release
+  end
+
+  @doc """
+  A `mix release` step that builds an Android APK when `BAGUETTE_ANDROID`
+  names the ABIs to build (`x86_64`, `arm64`, comma-separated):
+
+      BAGUETTE_ANDROID=x86_64 MIX_ENV=prod mix release
+
+  The release (its `lib` and `releases`, not the build machine's ERTS) is
+  embedded in the host library, which unpacks it on first launch. The APK
+  also carries the BEAM (`liberlang.so`), `erl_child_setup` and Baguette's
+  NIF as native libraries. `BAGUETTE_LIBERLANG` must hold
+  `<target>/liberlang.so` and `<target>/erl_child_setup` for each ABI, from
+  `scripts/build-liberlang-android.sh` with the OTP this release was built
+  with. Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java and
+  Node. The debug-signed APK lands in `_build/<env>/android/<name>.apk`.
+  """
+  @spec android(Mix.Release.t()) :: Mix.Release.t()
+  def android(%Mix.Release{} = release) do
+    case System.get_env("BAGUETTE_ANDROID") do
+      nil -> release
+      abis -> android(release, String.split(abis, ",", trim: true))
+    end
+  end
+
+  defp android(release, abis) do
+    options = release.options[:baguette] || []
+    name = Atom.to_string(release.name)
+    host = Path.join([baguette_root(), "native", "baguette_host"])
+    out = Path.join(Mix.Project.build_path(), "android")
+    liberlang = liberlang!()
+    File.mkdir_p!(out)
+
+    abis =
+      for abi <- abis do
+        Map.get(@android_abis, abi) || Mix.raise("unknown Android ABI #{abi} (x86_64 or arm64)")
+      end
+
+    # The release without the build machine's ERTS: the BEAM is liberlang.so.
+    archive = Path.join(out, "release.tar.gz")
+
+    files =
+      for dir <- ["lib", "releases"],
+          do: {String.to_charlist(dir), String.to_charlist(Path.join(release.path, dir))}
+
+    :ok = :erl_tar.create(String.to_charlist(archive), files, [:compressed])
+
+    config = Path.join(out, "tauri.android.json")
+
+    File.write!(
+      config,
+      :json.encode(%{
+        productName: get_in(options, [:window, :title]) || name,
+        version: release.version,
+        identifier: options[:identifier] || "dev.baguette.#{name}",
+        build: %{frontendDist: "dist"}
+      })
+    )
+
+    env = [
+      {"BAGUETTE_LIBERLANG", liberlang},
+      {"BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "android"])}
+    ]
+
+    run!(host, "npm", ["install", "--no-audit", "--no-fund"], env)
+    File.rm_rf!(Path.join(host, "gen/android"))
+    run!(host, "npm", ["run", "tauri", "--", "android", "init", "--ci", "--config", config], env)
+    patch_gradle!(Path.join(host, "gen/android/app/build.gradle.kts"))
+
+    # Native libraries the app loads or runs besides the host itself.
+    for abi <- abis do
+      jni = Path.join([host, "gen/android/app/src/main/jniLibs", abi.jni])
+      beam = Path.join(liberlang, abi.triple)
+      File.mkdir_p!(jni)
+      File.cp!(Path.join(beam, "liberlang.so"), Path.join(jni, "liberlang.so"))
+      File.cp!(Path.join(beam, "erl_child_setup"), Path.join(jni, "liberl_child_setup.so"))
+
+      linker_env = [
+        {"CARGO_TARGET_#{abi.triple |> String.upcase() |> String.replace("-", "_")}_LINKER",
+         ndk_clang(abi.triple)}
+      ]
+
+      run!(
+        Path.join(baguette_root(), "native"),
+        "cargo",
+        ["build", "--release", "-p", "baguette_nif", "--target", abi.triple],
+        env ++ linker_env
+      )
+
+      nif =
+        Path.join([
+          baguette_root(),
+          "native/target/android",
+          abi.triple,
+          "release/libbaguette_nif.so"
+        ])
+
+      File.cp!(nif, Path.join(jni, "libbaguette_nif.so"))
+    end
+
+    features = options[:host_features] || []
+
+    run!(
+      host,
+      "npm",
+      ["run", "tauri", "--", "android", "build", "--debug", "--apk", "--ci", "--config", config] ++
+        Enum.flat_map(abis, &["--target", &1.tauri]) ++
+        Enum.flat_map(features, &["--features", &1]),
+      env
+    )
+
+    [apk | _] = Path.wildcard(Path.join(host, "gen/android/app/build/outputs/apk/**/*.apk"))
+    target = Path.join(out, "#{name}.apk")
+    File.cp!(apk, target)
+    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(target)])
+    release
+  end
+
+  defp ndk_clang(triple) do
+    ndk =
+      System.get_env("NDK_HOME") || System.get_env("ANDROID_NDK_HOME") ||
+        Mix.raise("NDK_HOME is not set")
+
+    host = if match?({:unix, :darwin}, :os.type()), do: "darwin-x86_64", else: "linux-x86_64"
+    Path.join([ndk, "toolchains/llvm/prebuilt", host, "bin", "#{triple}24-clang"])
+  end
+
+  # Android only runs executables extracted from the APK, so native libraries
+  # (erl_child_setup among them) are installed as files, not mapped from it.
+  defp patch_gradle!(path) do
+    gradle = File.read!(path)
+
+    File.write!(
+      path,
+      String.replace(
+        gradle,
+        ~r/^android \{/m,
+        "android {\n    packaging { jniLibs { useLegacyPackaging = true } }",
+        global: false
+      )
+    )
+  end
+
+  defp run!(dir, command, args, env) do
+    Mix.shell().info([:green, "* running ", :reset, Enum.join([command | args], " ")])
+
+    case System.cmd(command, args, cd: dir, env: env, into: IO.stream(), stderr_to_stdout: true) do
+      {_, 0} -> :ok
+      {_, status} -> Mix.raise("#{command} exited with #{status}")
+    end
   end
 
   defp liberlang! do
