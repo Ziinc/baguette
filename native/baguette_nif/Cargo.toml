@@ -1,0 +1,13 @@
+[package]
+name = "baguette_nif"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+baguette_abi = { path = "../baguette_abi" }
+rustler = "0.38"

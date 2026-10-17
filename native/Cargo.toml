@@ -1,0 +1,3 @@
+[workspace]
+resolver = "3"
+members = ["baguette_abi", "baguette_nif", "baguette_host"]
