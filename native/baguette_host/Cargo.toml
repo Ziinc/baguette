@@ -19,9 +19,9 @@ baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable"] }
-# Pinned to the tauri-gpui branch that moves it to gpui-pre =0.3.9, the
-# snapshot gpui-kit 0.7.3 uses. Switch to a release once that lands.
-tauri-plugin-gpui = { git = "https://github.com/ziinc/tauri-gpui", branch = "claude/project-thread-h8aiom", features = ["mobile"] }
+# tauri-gpui's main is on gpui-pre =0.3.9, the snapshot gpui-kit 0.7.3 uses.
+# Switch to a release once one is published.
+tauri-plugin-gpui = { git = "https://github.com/ziinc/tauri-gpui", features = ["mobile"] }
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"

@@ -5894,7 +5894,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-gpui"
 version = "0.1.0"
-source = "git+https://github.com/ziinc/tauri-gpui?branch=claude%2Fproject-thread-h8aiom#d7d192999c169f9c1b8ed48ca805281c8121abcd"
+source = "git+https://github.com/ziinc/tauri-gpui#f9cf76bbeb3265b831bb7f4e736b2be66f285030"
 dependencies = [
  "accesskit_macos",
  "accesskit_unix",
