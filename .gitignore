@@ -1,0 +1,12 @@
+/_build/
+/deps/
+/cover/
+/doc/
+erl_crash.dump
+*.ez
+/native/baguette_host/target/
+/native/baguette_host/gen/
+/native/target/
+/priv/native/
+/examples/*/_build/
+/examples/*/deps/
