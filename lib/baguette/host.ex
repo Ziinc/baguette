@@ -33,6 +33,10 @@ defmodule Baguette.Host do
   @spec own(window()) :: :ok
   def own(window), do: GenServer.call(__MODULE__, {:own, window, self()})
 
+  @doc "The process that owns `window`'s events, or `nil`."
+  @spec owner(window()) :: pid() | nil
+  def owner(window), do: GenServer.call(__MODULE__, {:owner, window})
+
   @doc "Delivers `event` as if the native host had sent it."
   @spec dispatch(map()) :: :ok
   def dispatch(event), do: GenServer.cast(__MODULE__, {:event, event})
@@ -57,6 +61,9 @@ defmodule Baguette.Host do
 
   def handle_call({:last_frame, window}, _from, state),
     do: {:reply, Map.get(state.frames, window), state}
+
+  def handle_call({:owner, window}, _from, state),
+    do: {:reply, Map.get(state.owners, window), state}
 
   def handle_call({:own, window, pid}, _from, state) do
     Process.monitor(pid)

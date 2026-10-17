@@ -4,9 +4,8 @@ use std::collections::BTreeMap;
 
 use serde::Deserialize;
 use tauri_plugin_gpui::gpui::{
-    prelude::FluentBuilder,
     self, AnyElement, InteractiveElement, IntoElement, ParentElement, Role, SharedString,
-    StatefulInteractiveElement, Styled,
+    StatefulInteractiveElement, Styled, prelude::FluentBuilder,
 };
 
 use crate::bridge;
@@ -55,21 +54,31 @@ fn render_element(
 ) -> AnyElement {
     let classes = attrs.get("class").map(String::as_str).unwrap_or("");
     let disabled = attrs.contains_key("disabled");
-    let base = style::apply(gpui::div(), style::for_variant(classes, Variant::Base), theme);
+    let base = style::apply(
+        gpui::div(),
+        style::for_variant(classes, Variant::Base),
+        theme,
+    );
     let base = if disabled {
         style::apply(base, style::for_variant(classes, Variant::Disabled), theme)
     } else {
         base
     };
-    let children = children
+    let rendered = children
         .iter()
         .enumerate()
         .map(|(i, child)| render(child, &format!("{path}.{i}"), window, theme));
 
     let element = base
         .id(SharedString::from(path.to_owned()))
-        .children(children)
+        .children(rendered)
         .when(tag == "button", |el| el.role(Role::Button))
+        // A label's text is its value in AccessKit, so screen readers (and
+        // the AT-SPI end-to-end test) read what a `<text>` shows.
+        .when(tag == "text", |el| {
+            el.role(Role::Label)
+                .aria_value(SharedString::from(text_of(children)))
+        })
         .when_some(attrs.get("aria-label"), |el, label| {
             el.aria_label(SharedString::from(label.clone()))
         });
@@ -80,10 +89,16 @@ fn render_element(
     let event = event.clone();
     let values: BTreeMap<String, String> = attrs
         .iter()
-        .filter_map(|(key, value)| Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone())))
+        .filter_map(|(key, value)| {
+            Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone()))
+        })
         .collect();
-    let hover: Vec<String> = style::for_variant(classes, Variant::Hover).map(str::to_owned).collect();
-    let active: Vec<String> = style::for_variant(classes, Variant::Active).map(str::to_owned).collect();
+    let hover: Vec<String> = style::for_variant(classes, Variant::Hover)
+        .map(str::to_owned)
+        .collect();
+    let active: Vec<String> = style::for_variant(classes, Variant::Active)
+        .map(str::to_owned)
+        .collect();
     let (hover_theme, active_theme) = (theme.clone(), theme.clone());
     element
         .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
@@ -97,6 +112,18 @@ fn render_element(
             }));
         })
         .into_any_element()
+}
+
+/// The text inside `nodes`, as one string.
+fn text_of(nodes: &[Node]) -> String {
+    let mut parts = Vec::new();
+    for node in nodes {
+        match node {
+            Node::Text(text) => parts.push(text.clone()),
+            Node::Element { children, .. } => parts.push(text_of(children)),
+        }
+    }
+    parts.join(" ")
 }
 
 /// The root view of a Baguette window: whatever Elixir last rendered.

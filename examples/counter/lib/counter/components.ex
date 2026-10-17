@@ -2,9 +2,9 @@ defmodule Counter.Components do
   @moduledoc "The app's own components. Restyle them freely."
   use Phoenix.Component
 
-  attr :variant, :atom, default: :primary
-  attr :rest, :global, include: ~w(phx-click phx-value-by disabled aria-label)
-  slot :inner_block, required: true
+  attr(:variant, :atom, default: :primary)
+  attr(:rest, :global, include: ~w(phx-click phx-value-by disabled aria-label))
+  slot(:inner_block, required: true)
 
   def button(assigns) do
     ~H"""

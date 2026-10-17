@@ -33,7 +33,10 @@ fn main() {
     tauri::Builder::default()
         .setup(move |app| {
             tauri_plugin_gpui::init(app)?;
-            let title = release.as_ref().map(|r| r.name.clone()).unwrap_or("Baguette".into());
+            let title = release
+                .as_ref()
+                .map(|r| r.name.clone())
+                .unwrap_or("Baguette".into());
             let window = tauri::WindowBuilder::new(app, "main")
                 .title(title)
                 .inner_size(480.0, 360.0)
@@ -56,7 +59,7 @@ fn main() {
                             Ok(frame) => frame,
                             Err(error) => notice(format!("Invalid render from Elixir: {error}")),
                         };
-                        let _ = handle.update(cx, |root, cx| {
+                        handle.update(cx, |root, cx| {
                             root.frame = frame;
                             cx.notify();
                         });

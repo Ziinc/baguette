@@ -16,6 +16,9 @@ defmodule Counter.View do
     """
   end
 
-  def handle_event("inc", _values, assigns), do: {:noreply, %{assigns | count: Counter.Store.inc()}}
-  def handle_event("dec", _values, assigns), do: {:noreply, %{assigns | count: Counter.Store.dec()}}
+  def handle_event("inc", _values, assigns),
+    do: {:noreply, %{assigns | count: Counter.Store.inc()}}
+
+  def handle_event("dec", _values, assigns),
+    do: {:noreply, %{assigns | count: Counter.Store.dec()}}
 end

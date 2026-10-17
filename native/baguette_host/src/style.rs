@@ -29,18 +29,22 @@ pub fn for_variant(classes: &str, variant: Variant) -> impl Iterator<Item = &str
             Some((prefix, rest)) => (Some(prefix), rest),
             None => (None, class),
         };
-        let matches = match (prefix, variant) {
-            (None, Variant::Base) => true,
-            (Some("hover"), Variant::Hover) => true,
-            (Some("active"), Variant::Active) => true,
-            (Some("disabled"), Variant::Disabled) => true,
-            _ => false,
-        };
-        matches.then_some(rest)
+        matches!(
+            (prefix, variant),
+            (None, Variant::Base)
+                | (Some("hover"), Variant::Hover)
+                | (Some("active"), Variant::Active)
+                | (Some("disabled"), Variant::Disabled)
+        )
+        .then_some(rest)
     })
 }
 
-pub fn apply<S: Styled>(mut style: S, utilities: impl Iterator<Item = impl AsRef<str>>, theme: &Theme) -> S {
+pub fn apply<S: Styled>(
+    mut style: S,
+    utilities: impl Iterator<Item = impl AsRef<str>>,
+    theme: &Theme,
+) -> S {
     for utility in utilities {
         style = apply_one(style, utility.as_ref(), theme);
     }
@@ -95,7 +99,10 @@ fn apply_one<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
 }
 
 fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
-    if let Some(n) = class.strip_prefix("opacity-").and_then(|n| n.parse::<f32>().ok()) {
+    if let Some(n) = class
+        .strip_prefix("opacity-")
+        .and_then(|n| n.parse::<f32>().ok())
+    {
         return s.opacity(n / 100.);
     }
     const SPACING: &[&str] = &[
@@ -162,7 +169,12 @@ fn color(value: &str, theme: &Theme) -> Option<Hsla> {
     let rgba = match value {
         "white" => rgb(0xffffff),
         "black" => rgb(0x000000),
-        "transparent" => Rgba { r: 0., g: 0., b: 0., a: 0. },
+        "transparent" => Rgba {
+            r: 0.,
+            g: 0.,
+            b: 0.,
+            a: 0.,
+        },
         _ => {
             let hex = match value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) {
                 Some(hex) => hex,
@@ -205,10 +217,22 @@ mod tests {
     #[test]
     fn variants_split_by_prefix() {
         let classes = "px-4 hover:opacity-90 active:bg-primary disabled:opacity-50 focus:ring";
-        assert_eq!(for_variant(classes, Variant::Base).collect::<Vec<_>>(), ["px-4"]);
-        assert_eq!(for_variant(classes, Variant::Hover).collect::<Vec<_>>(), ["opacity-90"]);
-        assert_eq!(for_variant(classes, Variant::Active).collect::<Vec<_>>(), ["bg-primary"]);
-        assert_eq!(for_variant(classes, Variant::Disabled).collect::<Vec<_>>(), ["opacity-50"]);
+        assert_eq!(
+            for_variant(classes, Variant::Base).collect::<Vec<_>>(),
+            ["px-4"]
+        );
+        assert_eq!(
+            for_variant(classes, Variant::Hover).collect::<Vec<_>>(),
+            ["opacity-90"]
+        );
+        assert_eq!(
+            for_variant(classes, Variant::Active).collect::<Vec<_>>(),
+            ["bg-primary"]
+        );
+        assert_eq!(
+            for_variant(classes, Variant::Disabled).collect::<Vec<_>>(),
+            ["opacity-50"]
+        );
     }
 
     #[test]

@@ -31,7 +31,9 @@ impl Release {
                 .ok_or("cannot find the release next to the host executable")?
                 .to_path_buf(),
         };
-        let root = root.canonicalize().map_err(|e| format!("{}: {e}", root.display()))?;
+        let root = root
+            .canonicalize()
+            .map_err(|e| format!("{}: {e}", root.display()))?;
         let start_erl = std::fs::read_to_string(root.join("releases/start_erl.data"))
             .map_err(|e| format!("{}/releases/start_erl.data: {e}", root.display()))?;
         let (erts_version, version) = start_erl
@@ -42,7 +44,8 @@ impl Release {
             .map_err(|e| e.to_string())?
             .filter_map(|entry| {
                 let path = entry.ok()?.path();
-                (path.extension()? == "rel").then(|| path.file_stem()?.to_str().map(str::to_owned))?
+                (path.extension()? == "rel")
+                    .then(|| path.file_stem()?.to_str().map(str::to_owned))?
             })
             .next()
             .ok_or("no .rel file in the release")?;
@@ -77,7 +80,10 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
             ("RELEASE_COMMAND", "start".into()),
             ("RELEASE_MODE", "embedded".into()),
             ("RELEASE_PROG", "baguette_host".into()),
-            ("RELEASE_SYS_CONFIG", release.path(&format!("{releases}/sys"))),
+            (
+                "RELEASE_SYS_CONFIG",
+                release.path(&format!("{releases}/sys")),
+            ),
             ("RELEASE_TMP", release.path("tmp")),
             ("RELEASE_COOKIE", cookie.trim().to_owned()),
             ("RELEASE_DISTRIBUTION", "none".into()),
