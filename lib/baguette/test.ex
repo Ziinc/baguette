@@ -26,11 +26,53 @@ defmodule Baguette.Test do
 
   alias Baguette.Host
 
-  @doc "The root node last rendered to `window`."
+  @doc """
+  The root node last rendered to `window`. Each `<list>` holds the rows the
+  host has of it, in order, as its children.
+  """
   @spec tree(Host.window()) :: Baguette.Tree.tree() | nil
   def tree(window) do
     sync(window)
-    with %{"root" => root} <- Host.last_frame(window), do: root
+
+    with %{"root" => root} <- Host.last_frame(window),
+         do: with_rows(root, Host.rows_of(window))
+  end
+
+  defp with_rows(%{"t" => "list", "a" => %{"id" => id}} = list, rows) do
+    count = String.to_integer(list["a"]["rows"] || "0")
+    shown = for {i, row} <- Enum.sort(Map.get(rows, id, %{})), i < count, do: row
+    %{list | "c" => shown}
+  end
+
+  defp with_rows(%{"c" => children} = el, rows),
+    do: %{el | "c" => Enum.map(children, &with_rows(&1, rows))}
+
+  defp with_rows(node, _rows), do: node
+
+  @doc """
+  Scrolls rows `range` of the `<list>` with id `id` into view, as the host
+  does: the view's `handle_rows/3` renders them, and they join the tree.
+  """
+  @spec show_rows(Host.window(), String.t(), Range.t()) :: :ok
+  def show_rows(window, id, first..last//1) do
+    case for {_, %{"t" => "list", "a" => %{"id" => ^id} = attrs}, _} <- entries(window),
+             do: attrs do
+      [attrs] ->
+        Host.dispatch(%{
+          "type" => "rows",
+          "window" => window,
+          "event" => attrs["phx-rows"],
+          "id" => id,
+          "start" => first,
+          "end" => last + 1,
+          "visible" => [first, last + 1]
+        })
+
+        sync(window)
+
+      [] ->
+        raise ArgumentError, "no list #{inspect(id)} in window #{window}"
+    end
   end
 
   @doc "All text rendered to `window`, joined by spaces."

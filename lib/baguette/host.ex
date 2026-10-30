@@ -9,6 +9,7 @@ defmodule Baguette.Host do
 
   Without a host (`mix test`, `iex -S mix`), the host is *headless*: renders
   are kept in memory, so `Baguette.Test` can read them and dispatch events.
+
   """
   use GenServer
   require Logger
@@ -24,6 +25,17 @@ defmodule Baguette.Host do
   @doc "Sends `frame` (`%{theme: map, root: node}`) to `window`."
   @spec render(window(), map()) :: :ok
   def render(window, frame), do: GenServer.cast(__MODULE__, {:render, window, frame})
+
+  @doc """
+  Sends rows of the `<list>` with id `payload["id"]`, starting at index
+  `payload["start"]`, to `window`.
+  """
+  @spec rows(window(), map()) :: :ok
+  def rows(window, payload), do: GenServer.cast(__MODULE__, {:rows, window, payload})
+
+  @doc "The rows of each list in `window` the host has, as id to index to node."
+  @spec rows_of(window()) :: %{String.t() => %{non_neg_integer() => map()}}
+  def rows_of(window), do: GenServer.call(__MODULE__, {:rows_of, window})
 
   @doc "The last frame rendered to `window`, or `nil`."
   @spec last_frame(window()) :: map() | nil
@@ -63,7 +75,7 @@ defmodule Baguette.Host do
           false
       end
 
-    {:ok, %{native: native, owners: %{}, frames: %{}, typed: %{}}}
+    {:ok, %{native: native, owners: %{}, frames: %{}, rows: %{}, typed: %{}}}
   end
 
   # The host refuses component sets compiled from other manifests than its
@@ -95,6 +107,9 @@ defmodule Baguette.Host do
     {:reply, typed, state}
   end
 
+  def handle_call({:rows_of, window}, _from, state),
+    do: {:reply, Map.get(state.rows, window, %{}), state}
+
   def handle_call({:owner, window}, _from, state),
     do: {:reply, Map.get(state.owners, window), state}
 
@@ -105,9 +120,20 @@ defmodule Baguette.Host do
 
   @impl true
   def handle_cast({:render, window, frame}, state) do
-    if state.native, do: Baguette.Native.render(window, IO.iodata_to_binary(:json.encode(frame)))
+    if state.native, do: send_native(window, frame)
     state = put_in(state.frames[window], frame)
+    # A frame's rows replace every row the host had: the rest are stale.
+    rows = Map.new(frame["lists"] || %{}, fn {id, segment} -> {id, indexed(segment)} end)
+    state = put_in(state.rows[window], rows)
     {:noreply, %{state | typed: settle_typed(state.typed, window, frame)}}
+  end
+
+  def handle_cast({:rows, window, %{"id" => id} = payload}, state) do
+    if state.native, do: send_native(window, %{"rows" => payload})
+
+    lists = Map.get(state.rows, window, %{})
+    lists = Map.update(lists, id, indexed(payload), &Map.merge(&1, indexed(payload)))
+    {:noreply, put_in(state.rows[window], lists)}
   end
 
   def handle_cast({:event, event}, state) do
@@ -125,6 +151,12 @@ defmodule Baguette.Host do
     owners = for {window, owner} <- state.owners, owner != pid, into: %{}, do: {window, owner}
     {:noreply, %{state | owners: owners}}
   end
+
+  defp send_native(window, message),
+    do: Baguette.Native.render(window, IO.iodata_to_binary(:json.encode(message)))
+
+  defp indexed(%{"start" => start, "rows" => rows}),
+    do: rows |> Enum.with_index(start) |> Map.new(fn {row, i} -> {i, row} end)
 
   # A frame that renders a different `value` for an input replaces what was
   # typed into it, as the native host does.

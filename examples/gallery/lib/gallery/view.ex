@@ -1,5 +1,5 @@
 defmodule Gallery.View do
-  @moduledoc "Baguette's native API on one screen: gpui-kit's components."
+  @moduledoc "Baguette's native API on one screen: gpui-kit's components and a long list."
   use Baguette.View
   import Baguette.Kit
 
@@ -20,8 +20,24 @@ defmodule Gallery.View do
         More
       </button>
       <.skeleton class="w-64 h-4" />
+      <list id="jobs" rows={10_000} phx-rows="jobs" class="h-40 w-64 border border-border" />
     </div>
     """
+  end
+
+  def handle_rows("jobs", range, assigns) do
+    rows =
+      for i <- range do
+        assigns = %{i: i}
+
+        ~H"""
+        <div class="h-8 px-2 flex items-center">
+          <text>Job {@i}</text>
+        </div>
+        """
+      end
+
+    {:reply, rows, assigns}
   end
 
   def handle_event("more", _values, assigns),

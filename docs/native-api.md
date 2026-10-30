@@ -109,6 +109,17 @@ tests both read it, so the two sides can't drift apart.
   hash differs: it says so in the window, ignores renders and `attach`
   returns `{:error, :components_mismatch}`. Sets the host lacks are only
   logged.
+- **Long lists** (step 3). `<list id="jobs" rows={@count} phx-rows="jobs">`
+  is a `uniform_list` (`list.rs`). The host draws the rows on screen and asks
+  for the ones it lacks with a `rows` event: the rows to send plus the range
+  on screen with a screen's margin either side. `Baguette.View` calls
+  `handle_rows(event, range, assigns)`, which returns
+  `{:reply, rows, assigns}`, and sends the rows. Every render of the view
+  renders each list's on-screen range again and sends it with the frame,
+  where it replaces the host's cache, so rows follow the assigns like the
+  rest of the template. Rows are `row-height` px tall (default 24) until
+  they arrive; GPUI then measures them from the first row the host has.
+  `Baguette.Test.show_rows/3` scrolls headlessly.
 
 ## Next, in order
 

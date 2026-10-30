@@ -25,4 +25,14 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     Playwright.click(page, "More")
     assert :ok = Playwright.await_text(page, "50% uploaded")
   end
+
+  test "a long list asks Elixir for the rows it scrolls to", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Job 0")
+    refute Playwright.visible?(page, text: "Job 77")
+
+    # Rows are 32px tall: 75 rows down.
+    Playwright.scroll(page, [text: "Job 1"], 0, 2400)
+    assert :ok = Playwright.await_text(page, "Job 77")
+    refute Playwright.visible?(page, text: "Job 0")
+  end
 end

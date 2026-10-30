@@ -16,14 +16,29 @@ use tauri_plugin_gpui::gpui::{
 };
 
 use crate::bridge;
+use crate::list::{ListState, Segment};
 use crate::style::{self, Theme, Variant};
 
-/// One render from Elixir: the theme tokens and the root node.
+/// What Elixir sends a window.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub enum Message {
+    /// Rows of a `<list>`, in reply to the host asking for them.
+    Rows {
+        rows: Segment,
+    },
+    Frame(Frame),
+}
+
+/// One render from Elixir: the theme tokens, the root node and, by list id,
+/// the rows of each `<list>` on screen.
 #[derive(Deserialize, Default)]
 pub struct Frame {
     #[serde(default)]
     pub theme: Theme,
     pub root: Option<Node>,
+    #[serde(default)]
+    pub lists: HashMap<String, Segment>,
 }
 
 #[derive(Deserialize)]
@@ -66,6 +81,7 @@ struct Renderer<'a, 'c> {
     cx: &'a mut gpui::Context<'c, Root>,
     inputs: &'a mut HashMap<String, InputSlot>,
     checks: &'a mut HashMap<String, CheckSlot>,
+    lists: &'a mut HashMap<String, ListState>,
     forms: HashMap<String, FormInfo>,
     form: Option<String>,
     seen: HashSet<String>,
@@ -91,6 +107,7 @@ impl Renderer<'_, '_> {
             } if crate::components::find(tag).is_some() => {
                 self.component(tag, attrs, children, path)
             }
+            Node::Element { tag, attrs, .. } if tag == "list" => self.list(attrs, path),
             Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, self.theme),
             Node::Element { tag, attrs, .. } if tag == "icon" => render_icon(attrs, self.theme),
             Node::Element { tag, attrs, .. }
@@ -292,6 +309,34 @@ impl Renderer<'_, '_> {
             children,
         };
         (component.render)(props, self.window, self.cx)
+    }
+
+    /// A virtualized list (GPUI's `uniform_list`) of `rows` rows, drawn as
+    /// they scroll into view from the rows Elixir sends (`list.rs`).
+    fn list(&mut self, attrs: &BTreeMap<String, String>, path: &str) -> AnyElement {
+        let key = attrs.get("id").cloned().unwrap_or_else(|| path.to_owned());
+        self.seen.insert(format!("list:{key}"));
+        let state = self.lists.entry(key.clone()).or_default();
+        state.count = attrs.get("rows").and_then(|n| n.parse().ok()).unwrap_or(0);
+        state.event = attrs.get("phx-rows").cloned();
+        state.path = path.to_owned();
+        if let Some(height) = attrs.get("row-height").and_then(|h| h.parse().ok()) {
+            state.row_height = height;
+        }
+        let root = self.cx.entity().downgrade();
+        let list = gpui::uniform_list(
+            SharedString::from(path.to_owned()),
+            state.count,
+            move |range, window, cx| {
+                root.update(cx, |root, cx| root.list_rows(&key, range, window, cx))
+                    .unwrap_or_default()
+            },
+        )
+        .with_width_from_item(Some(state.measured()))
+        .track_scroll(&state.scroll);
+        let classes = attrs.get("class").map(String::as_str).unwrap_or("");
+        style::apply(list, style::for_variant(classes, Variant::Base), self.theme)
+            .into_any_element()
     }
 
     /// The form a `<button type="submit">` without its own `phx-click`
@@ -761,6 +806,7 @@ pub struct Root {
     pub frame: Frame,
     inputs: HashMap<String, InputSlot>,
     checks: HashMap<String, CheckSlot>,
+    lists: HashMap<String, ListState>,
     forms: HashMap<String, FormInfo>,
     keydowns: Vec<WindowKey>,
 }
@@ -807,12 +853,83 @@ pub fn key_name(key: &str) -> Option<String> {
 impl Root {
     /// Shows `frame`. When its theme tokens changed, gpui-kit's theme takes
     /// them too, so native inputs and checkboxes match the app's colours.
-    pub fn show(&mut self, frame: Frame, cx: &mut gpui::Context<Self>) {
+    pub fn show(&mut self, mut frame: Frame, cx: &mut gpui::Context<Self>) {
         if frame.theme != self.frame.theme {
             apply_theme(&frame.theme, cx);
         }
+        self.reset_lists(std::mem::take(&mut frame.lists));
         self.frame = frame;
         cx.notify();
+    }
+
+    fn reset_lists(&mut self, mut lists: HashMap<String, Segment>) {
+        for (key, list) in &mut self.lists {
+            list.reset(lists.remove(key));
+        }
+    }
+
+    /// Rows Elixir sent for one of the window's lists.
+    pub fn rows(&mut self, segment: Segment, cx: &mut gpui::Context<Self>) {
+        if let Some(list) = self.lists.get_mut(&segment.id) {
+            list.insert(segment);
+            cx.notify();
+        }
+    }
+
+    /// The rows of list `key` in `range`, as `uniform_list` draws them. Rows
+    /// not here yet are blank until Elixir sends them, which this asks for.
+    fn list_rows(
+        &mut self,
+        key: &str,
+        range: std::ops::Range<usize>,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Vec<AnyElement> {
+        let Some(mut list) = self.lists.remove(key) else {
+            return Vec::new();
+        };
+        if let (Some(want), Some(event)) = (list.wanted(range.clone()), &list.event) {
+            bridge::emit(&json!({
+                "type": "rows",
+                "window": self.window,
+                "event": event,
+                "id": key,
+                "start": want.rows.start,
+                "end": want.rows.end,
+                "visible": [want.visible.start, want.visible.end],
+            }));
+        }
+        let frame = std::mem::take(&mut self.frame);
+        let mut inputs = std::mem::take(&mut self.inputs);
+        let mut checks = std::mem::take(&mut self.checks);
+        let mut lists = std::mem::take(&mut self.lists);
+        let rows = {
+            let mut renderer = Renderer {
+                window_id: self.window,
+                theme: &frame.theme,
+                window,
+                cx,
+                inputs: &mut inputs,
+                checks: &mut checks,
+                lists: &mut lists,
+                forms: HashMap::new(),
+                form: None,
+                seen: HashSet::new(),
+                keydowns: Vec::new(),
+            };
+            range
+                .map(|i| match list.rows.get(&i) {
+                    Some(node) => renderer.render(node, &format!("{}.rows.{i}", list.path)),
+                    None => gpui::div().h(gpui::px(list.row_height)).into_any_element(),
+                })
+                .collect()
+        };
+        lists.insert(key.to_owned(), list);
+        self.lists = lists;
+        self.inputs = inputs;
+        self.checks = checks;
+        self.frame = frame;
+        rows
     }
 
     pub fn new(window: u32, frame: Frame) -> Self {
@@ -821,6 +938,7 @@ impl Root {
             frame,
             inputs: HashMap::new(),
             checks: HashMap::new(),
+            lists: HashMap::new(),
             forms: HashMap::new(),
             keydowns: Vec::new(),
         }
@@ -1035,6 +1153,7 @@ impl gpui::Render for Root {
         let frame = std::mem::take(&mut self.frame);
         let mut inputs = std::mem::take(&mut self.inputs);
         let mut checks = std::mem::take(&mut self.checks);
+        let mut lists = std::mem::take(&mut self.lists);
         let (content, forms, seen) = {
             let mut renderer = Renderer {
                 window_id: self.window,
@@ -1043,6 +1162,7 @@ impl gpui::Render for Root {
                 cx,
                 inputs: &mut inputs,
                 checks: &mut checks,
+                lists: &mut lists,
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
@@ -1055,11 +1175,15 @@ impl gpui::Render for Root {
             self.keydowns = renderer.keydowns;
             (content, renderer.forms, renderer.seen)
         };
-        // Inputs no longer rendered drop their state.
-        inputs.retain(|path, _| seen.contains(path));
-        checks.retain(|path, _| seen.contains(path));
+        // Inputs and lists no longer rendered drop their state. Those in a
+        // list's rows are drawn later, as the list lays out.
+        let kept = |path: &String| seen.contains(path) || path.contains(".rows.");
+        inputs.retain(|path, _| kept(path));
+        checks.retain(|path, _| kept(path));
+        lists.retain(|key, _| seen.contains(&format!("list:{key}")));
         self.inputs = inputs;
         self.checks = checks;
+        self.lists = lists;
         self.forms = forms;
         self.frame = frame;
         gpui::div().size_full().children(content)
@@ -1069,6 +1193,26 @@ impl gpui::Render for Root {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reads_frames_and_rows() {
+        let frame = r#"{"theme": {}, "root": {"t": "list", "a": {"id": "jobs"}},
+            "lists": {"jobs": {"start": 4, "rows": ["a", "b"]}}}"#;
+        let Ok(Message::Frame(frame)) = serde_json::from_str(frame) else {
+            panic!("not a frame");
+        };
+        assert_eq!(frame.lists["jobs"].start, 4);
+        assert_eq!(frame.lists["jobs"].rows.len(), 2);
+
+        let rows = r#"{"rows": {"id": "jobs", "start": 9, "rows": [{"t": "text", "c": ["x"]}]}}"#;
+        let Ok(Message::Rows { rows }) = serde_json::from_str(rows) else {
+            panic!("not rows");
+        };
+        assert_eq!(
+            (rows.id.as_str(), rows.start, rows.rows.len()),
+            ("jobs", 9, 1)
+        );
+    }
 
     #[test]
     fn keys_take_the_browsers_names() {

@@ -20,6 +20,23 @@ defmodule Baguette.View do
         def handle_event("inc", _values, assigns), do: {:noreply, %{assigns | count: assigns.count + 1}}
       end
 
+  ## Long lists
+
+  `<list id="jobs" rows={@count} phx-rows="jobs" class="h-96" />` is a
+  virtualized list (GPUI's `uniform_list`): the host draws only the rows on
+  screen and asks for them by range. `handle_rows/3` renders them:
+
+      def handle_rows("jobs", range, assigns) do
+        rows = for job <- Jobs.slice(range), do: row(%{job: job})
+        {:reply, rows, assigns}
+      end
+
+  Every row has the height of the first one the host measures; until a row
+  arrives it is `row-height` pixels tall (default 24). Each render of the
+  view renders the rows on screen again, so they follow the assigns like
+  the rest of the template. `id` names the list; it must be unique in the
+  window.
+
   Start it in your supervision tree with
   `{MyApp.CounterView, theme: MyApp.Theme}`. Templates use the same tags,
   classes, function components and `phx-click`/`phx-value-*` bindings as a
@@ -32,7 +49,9 @@ defmodule Baguette.View do
   @callback render(assigns()) :: Phoenix.LiveView.Rendered.t()
   @callback handle_event(event :: String.t(), values :: map(), assigns()) :: {:noreply, assigns()}
   @callback handle_info(msg :: term(), assigns()) :: {:noreply, assigns()}
-  @optional_callbacks handle_event: 3, handle_info: 2
+  @callback handle_rows(event :: String.t(), Range.t(), assigns()) ::
+              {:reply, [Phoenix.LiveView.Rendered.t()], assigns()}
+  @optional_callbacks handle_event: 3, handle_info: 2, handle_rows: 3
 
   defmacro __using__(_opts) do
     quote do
@@ -67,7 +86,7 @@ defmodule Baguette.View do
     :ok = Baguette.Host.own(window)
     {:ok, assigns} = module.mount(Keyword.get(opts, :args, []))
     theme = if theme = opts[:theme], do: theme.tokens(), else: %{}
-    state = %{module: module, window: window, theme: theme, assigns: assigns}
+    state = %{module: module, window: window, theme: theme, assigns: assigns, lists: %{}}
     {:ok, push(state)}
   end
 
@@ -81,6 +100,16 @@ defmodule Baguette.View do
   def handle_info({:baguette_event, %{"type" => "drag"} = event}, state) do
     values = Map.merge(event["values"] || %{}, Map.take(event, ["dx", "dy"]))
     callback(state, :handle_event, [event["event"], values, state.assigns])
+  end
+
+  # The host shows rows `start` to `end` (exclusive) of a list and lacks
+  # them; it keeps `visible` on screen, which every render refreshes.
+  def handle_info({:baguette_event, %{"type" => "rows", "id" => id} = event}, state) do
+    [first, last] = event["visible"] || [event["start"], event["end"]]
+    state = put_in(state.lists[id], %{event: event["event"], visible: {first, last}})
+    {rows, state} = rows(state, event["event"], event["start"], event["end"])
+    Baguette.Host.rows(state.window, %{"id" => id, "start" => event["start"], "rows" => rows})
+    {:noreply, state}
   end
 
   def handle_info({:baguette_event, _event}, state), do: {:noreply, state}
@@ -98,7 +127,33 @@ defmodule Baguette.View do
 
   defp push(state) do
     root = state.assigns |> state.module.render() |> Baguette.Tree.from_rendered()
-    Baguette.Host.render(state.window, %{"theme" => state.theme, "root" => root})
+    counts = list_counts(root, %{})
+    state = %{state | lists: Map.take(state.lists, Map.keys(counts))}
+
+    {lists, state} =
+      Enum.flat_map_reduce(state.lists, state, fn {id, %{event: event, visible: {first, last}}},
+                                                  state ->
+        {rows, state} = rows(state, event, first, min(last, counts[id]))
+        {[{id, %{"start" => first, "rows" => rows}}], state}
+      end)
+
+    frame = %{"theme" => state.theme, "root" => root, "lists" => Map.new(lists)}
+    Baguette.Host.render(state.window, frame)
     state
   end
+
+  # Rows `first` to `last` (exclusive) as nodes, from handle_rows/3.
+  defp rows(state, _event, first, last) when first >= last, do: {[], state}
+
+  defp rows(state, event, first, last) do
+    {:reply, rows, assigns} = state.module.handle_rows(event, first..(last - 1)//1, state.assigns)
+    {Enum.map(rows, &Baguette.Tree.from_rendered/1), %{state | assigns: assigns}}
+  end
+
+  # Each `<list>`'s row count, by id.
+  defp list_counts(%{"t" => "list", "a" => %{"id" => id} = attrs}, acc),
+    do: Map.put(acc, id, String.to_integer(attrs["rows"] || "0"))
+
+  defp list_counts(%{"c" => children}, acc), do: Enum.reduce(children, acc, &list_counts/2)
+  defp list_counts(_node, acc), do: acc
 end
