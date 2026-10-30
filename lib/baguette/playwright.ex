@@ -23,7 +23,7 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
 
     @timeout 10_000
 
-    @type app :: %{os_pid: non_neg_integer(), port: :inet.port_number()}
+    @type app :: %{os_pid: non_neg_integer(), port: :inet.port_number(), os_port: port()}
     @type page :: %{page: String.t(), frame: String.t(), opts: keyword()}
 
     @doc """
@@ -43,7 +43,7 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
 
       {:os_pid, os_pid} = Port.info(os_port, :os_pid)
       await_listening!(port, Keyword.get(opts, :timeout, 60_000))
-      %{os_pid: os_pid, port: port}
+      %{os_pid: os_pid, port: port, os_port: os_port}
     end
 
     @doc "Stops an app started by `start_app!/2` and waits until it has exited."
@@ -68,6 +68,26 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
           :ok
       end
     end
+
+    @doc """
+    What the app has printed (stdout and stderr) since the last call. Call it
+    from the process that started the app.
+    """
+    @spec log(app()) :: String.t()
+    def log(%{os_port: os_port}), do: collect_log(os_port, [])
+
+    defp collect_log(os_port, acc) do
+      receive do
+        {^os_port, {:data, data}} -> collect_log(os_port, [acc, data])
+      after
+        0 -> IO.iodata_to_binary(acc)
+      end
+    end
+
+    @doc "Whether the app's process is still running."
+    @spec alive?(app()) :: boolean()
+    def alive?(%{os_pid: os_pid}),
+      do: match?({_, 0}, System.cmd("kill", ["-0", "#{os_pid}"], stderr_to_stdout: true))
 
     @doc "Connects to the app and returns its main window as a page."
     @spec connect!(app()) :: page()
@@ -146,6 +166,26 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
       {:ok, _} = Page.mouse_move(page.page, opts ++ [x: from_x + dx, y: from_y + dy, steps: 5])
       {:ok, _} = Page.mouse_up(page.page, opts)
       :ok
+    end
+
+    @doc "The window's accessibility tree in Playwright's ARIA snapshot format."
+    @spec aria_snapshot(page()) :: String.t()
+    def aria_snapshot(page) do
+      %{result: %{snapshot: snapshot}} =
+        Connection.send(
+          page.opts[:connection],
+          %{guid: page.frame, method: :aria_snapshot, params: %{}},
+          page.opts[:timeout]
+        )
+
+      snapshot
+    end
+
+    @doc "The accessible names of every button in the window, in order."
+    @spec buttons(page()) :: [String.t()]
+    def buttons(page) do
+      for [_, name] <- Regex.scan(~r/- button "((?:[^"\\]|\\.)*)"/, aria_snapshot(page)),
+          do: String.replace(name, ~S(\"), ~s("))
     end
 
     @doc "The window as PNG bytes."

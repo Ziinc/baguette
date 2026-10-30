@@ -16,7 +16,7 @@ defmodule Baguette.E2E.CounterPlaywrightTest do
   setup do
     app = Playwright.start_app!(@app, port: 9334)
     on_exit(fn -> Playwright.stop_app(app) end)
-    %{page: Playwright.connect!(app)}
+    %{page: Playwright.connect!(app), app: app}
   end
 
   test "clicks reach the GenServer and the count re-renders", %{page: page} do
@@ -27,5 +27,16 @@ defmodule Baguette.E2E.CounterPlaywrightTest do
     Playwright.click(page, "Decrement")
 
     assert :ok = Playwright.await_text(page, "Count: 1")
+  end
+
+  test "buttons/1 names every button; aria_snapshot/1 is the whole window", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Count: 0")
+    assert Enum.sort(Playwright.buttons(page)) == ["Decrement", "Increment"]
+    assert Playwright.aria_snapshot(page) =~ ~s(button "Increment")
+  end
+
+  test "log/1 returns what the app has printed so far", %{app: app, page: page} do
+    assert :ok = Playwright.await_text(page, "Count: 0")
+    assert Playwright.log(app) =~ "baguette: playwright on"
   end
 end
