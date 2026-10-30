@@ -33,6 +33,16 @@ defmodule Baguette.Host do
   @spec own(window()) :: :ok
   def own(window), do: GenServer.call(__MODULE__, {:own, window, self()})
 
+  @doc false
+  # Headless text entry: what was typed into the input at `path`, and the
+  # `value` the view had rendered for it then. The typed text stands until
+  # the view renders a different value, as in a native input.
+  def type(window, path, text, rendered),
+    do: GenServer.call(__MODULE__, {:type, window, path, text, rendered})
+
+  @doc false
+  def typed(window), do: GenServer.call(__MODULE__, {:typed, window})
+
   @doc "The process that owns `window`'s events, or `nil`."
   @spec owner(window()) :: pid() | nil
   def owner(window), do: GenServer.call(__MODULE__, {:owner, window})
@@ -53,7 +63,7 @@ defmodule Baguette.Host do
           false
       end
 
-    {:ok, %{native: native, owners: %{}, frames: %{}}}
+    {:ok, %{native: native, owners: %{}, frames: %{}, typed: %{}}}
   end
 
   @impl true
@@ -61,6 +71,14 @@ defmodule Baguette.Host do
 
   def handle_call({:last_frame, window}, _from, state),
     do: {:reply, Map.get(state.frames, window), state}
+
+  def handle_call({:type, window, path, text, rendered}, _from, state),
+    do: {:reply, :ok, put_in(state.typed[{window, path}], {text, rendered})}
+
+  def handle_call({:typed, window}, _from, state) do
+    typed = for {{^window, path}, entry} <- state.typed, into: %{}, do: {path, entry}
+    {:reply, typed, state}
+  end
 
   def handle_call({:owner, window}, _from, state),
     do: {:reply, Map.get(state.owners, window), state}
@@ -73,7 +91,8 @@ defmodule Baguette.Host do
   @impl true
   def handle_cast({:render, window, frame}, state) do
     if state.native, do: Baguette.Native.render(window, IO.iodata_to_binary(:json.encode(frame)))
-    {:noreply, put_in(state.frames[window], frame)}
+    state = put_in(state.frames[window], frame)
+    {:noreply, %{state | typed: settle_typed(state.typed, window, frame)}}
   end
 
   def handle_cast({:event, event}, state) do
@@ -90,6 +109,28 @@ defmodule Baguette.Host do
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
     owners = for {window, owner} <- state.owners, owner != pid, into: %{}, do: {window, owner}
     {:noreply, %{state | owners: owners}}
+  end
+
+  # A frame that renders a different `value` for an input replaces what was
+  # typed into it, as the native host does.
+  defp settle_typed(typed, window, frame) do
+    Map.reject(typed, fn
+      {{^window, path}, {_text, rendered}} -> rendered_value(frame["root"], path) != rendered
+      _ -> false
+    end)
+  end
+
+  defp rendered_value(root, "root" <> rest) do
+    rest
+    |> String.split(".", trim: true)
+    |> Enum.reduce(root, fn
+      i, %{"c" => children} -> Enum.at(children, String.to_integer(i))
+      _i, _ -> nil
+    end)
+    |> case do
+      %{"a" => attrs} -> attrs["value"] || ""
+      _ -> nil
+    end
   end
 
   defp route(%{"window" => window} = event, state) do
