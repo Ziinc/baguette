@@ -15,4 +15,14 @@ defmodule Baguette.ReleaseTest do
     System.put_env("BAGUETTE_HOST_FEATURES", "playwright, b,a")
     assert Release.host_features(%{baguette: [host_features: ["a"]]}) == ["a", "playwright", "b"]
   end
+
+  test "android_host_env/1 builds an unsigned (debug) host without debug info" do
+    env = Release.android_host_env(false)
+    assert {"CARGO_PROFILE_DEV_DEBUG", "false"} in env
+    assert {"CARGO_PROFILE_DEV_STRIP", "debuginfo"} in env
+  end
+
+  test "android_host_env/1 leaves a signed (release) host to the release profile" do
+    assert Release.android_host_env(true) == []
+  end
 end

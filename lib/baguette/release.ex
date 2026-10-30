@@ -46,6 +46,21 @@ defmodule Baguette.Release do
     )
   end
 
+  @doc """
+  Cargo profile settings for the Android host library. An unsigned APK is a
+  debug build, whose host library carried hundreds of MB of debug info (and
+  Tauri's debug build type keeps it, unstripped, in the APK), so it is built
+  without debug info and with the standard library's stripped. Symbols stay:
+  Android loads the host by its exported JNI names. A signed APK is a release
+  build, already stripped by the workspace's release profile.
+  """
+  @spec android_host_env(boolean()) :: [{String.t(), String.t()}]
+  def android_host_env(true = _signed?), do: []
+
+  def android_host_env(false) do
+    [{"CARGO_PROFILE_DEV_DEBUG", "false"}, {"CARGO_PROFILE_DEV_STRIP", "debuginfo"}]
+  end
+
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
@@ -299,7 +314,7 @@ defmodule Baguette.Release do
         if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
         Enum.flat_map(abis, &["--target", &1.tauri]) ++
         Enum.flat_map(features, &["--features", &1]),
-      env
+      env ++ android_host_env(signed?)
     )
 
     outputs = Path.join(host, "gen/android/app/build/outputs")
