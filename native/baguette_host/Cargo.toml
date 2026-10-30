@@ -25,6 +25,8 @@ gpui-kit = { version = "=0.7.3", default-features = false, features = ["componen
 gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", optional = true }
 baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }
+# Native open and save dialogs for phx-pick-file / phx-pick-save.
+tauri-plugin-dialog = "2"
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable"] }
 # tauri-gpui's main is on gpui-pre =0.3.9, the snapshot gpui-kit 0.7.3 uses.
