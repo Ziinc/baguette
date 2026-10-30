@@ -98,6 +98,15 @@ jobs:
       - name: Counter release, clicked through AT-SPI
         run: scripts/e2e-linux.sh e2e-screenshots
         timeout-minutes: 20
+      - name: Releases with gpui-playwright, driven from ExUnit
+        run: |
+          for app in counter board; do
+            (cd examples/$app && mix deps.get && \
+              BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
+          done
+          mix deps.get
+          xvfb-run -a mix test --only playwright
+        timeout-minutes: 30
       - name: Tauri bundles (deb, AppImage) install and boot the release
         run: scripts/bundle-test-linux.sh examples/broadway Firehose bundle-test
         timeout-minutes: 30
