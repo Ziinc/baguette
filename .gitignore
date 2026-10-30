@@ -12,3 +12,4 @@ erl_crash.dump
 /examples/*/deps/
 /native/baguette_host/node_modules/
 /test/e2e/.shots/
+/tmp/

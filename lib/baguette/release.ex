@@ -29,6 +29,8 @@ defmodule Baguette.Release do
   `android/1` builds an APK instead.
   """
 
+  alias Baguette.Release.AndroidNifs
+
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
     "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
@@ -178,6 +180,11 @@ defmodule Baguette.Release do
   built with. Needs the Android SDK and NDK (`ANDROID_HOME`, `NDK_HOME`), Java and
   Node.
 
+  Every other NIF the release carries (Rustler crates and `elixir_make`
+  Makefiles in its dependencies) is built again for each ABI and shipped the
+  same way; see `Baguette.Release.AndroidNifs` for how, and for the
+  `android_nifs` option that skips or tunes a dependency's build.
+
   Without a signing key the step builds a debug-signed APK. With
   `BAGUETTE_ANDROID_KEYSTORE` (a keystore file),
   `BAGUETTE_ANDROID_KEYSTORE_PASSWORD`, `BAGUETTE_ANDROID_KEY_ALIAS` and
@@ -210,11 +217,7 @@ defmodule Baguette.Release do
     # The release without the build machine's ERTS: the BEAM is liberlang.so.
     archive = Path.join(out, "release.tar.gz")
 
-    files =
-      for dir <- ["lib", "releases"],
-          do: {String.to_charlist(dir), String.to_charlist(Path.join(release.path, dir))}
-
-    :ok = :erl_tar.create(String.to_charlist(archive), files, [:compressed])
+    :ok = :erl_tar.create(String.to_charlist(archive), archive_files(release.path), [:compressed])
 
     config = Path.join(out, "tauri.android.json")
 
@@ -270,6 +273,21 @@ defmodule Baguette.Release do
         ])
 
       File.cp!(nif, Path.join(jni, "libbaguette_nif.so"))
+
+      # Every other NIF the release carries, built again for this ABI.
+      release.path
+      |> Path.join("lib")
+      |> AndroidNifs.find()
+      |> AndroidNifs.plan(abi.triple,
+        deps: nif_sources(),
+        ndk_bin: Path.dirname(ndk_clang(abi.triple)),
+        liberlang: beam,
+        erts_include: Path.join([:code.root_dir(), "erts-#{release.erts_version}", "include"]),
+        out: Path.join(out, "nifs"),
+        overrides: options[:android_nifs] || [],
+        skip: ["baguette"]
+      )
+      |> AndroidNifs.build!(jni, &run!/4)
     end
 
     features = host_features(release.options)
@@ -295,6 +313,31 @@ defmodule Baguette.Release do
     end
 
     release
+  end
+
+  # The release's `lib` and `releases`, with each NIF emptied: the build
+  # machine's NIFs are of no use on Android, where the host links each one to
+  # its `lib<stem>.so` in the APK.
+  defp archive_files(root) do
+    nifs =
+      for %{app: app, vsn: vsn, files: files} <- AndroidNifs.find(Path.join(root, "lib")),
+          file <- files,
+          into: MapSet.new(),
+          do: Path.join(["lib", "#{app}-#{vsn}", file])
+
+    for dir <- ["lib", "releases"],
+        path <- Path.wildcard(Path.join([root, dir, "**"]), match_dot: true),
+        File.regular?(path) do
+      name = Path.relative_to(path, root)
+      content = if name in nifs, do: <<>>, else: String.to_charlist(path)
+      {String.to_charlist(name), content}
+    end
+  end
+
+  # Each dependency's (and umbrella app's) source, by app name.
+  defp nif_sources do
+    Map.merge(Mix.Project.apps_paths() || %{}, Mix.Project.deps_paths())
+    |> Map.new(fn {app, path} -> {Atom.to_string(app), Path.expand(path)} end)
   end
 
   defp ndk_clang(triple) do
