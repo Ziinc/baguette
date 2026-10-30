@@ -32,4 +32,11 @@ defmodule Baguette.E2E.BoardPlaywrightTest do
     assert <<0x89, "PNG", _::binary>> = png
     File.write!(Path.join(System.tmp_dir!(), "baguette-board.png"), png)
   end
+
+  test "a drag goes only to the topmost element under the pointer", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Lifts: 0")
+    Playwright.drag(page, "Lid", 50, 0)
+    assert :ok = Playwright.await_text(page, "Lifts: 1")
+    assert :ok = Playwright.await_text(page, "At 40,40")
+  end
 end
