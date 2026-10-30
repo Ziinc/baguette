@@ -253,8 +253,8 @@ fn run(_args: Vec<String>) {
 /// links each library against what it lists, so the APK carries the BEAM as
 /// `liberlang.so`, its port programs as `lib<name>.so` (`erl_child_setup`,
 /// `inet_gethost`) and each NIF as `lib<name>.so`. Unpacking links the release
-/// to them: `bin/<program>` and every `priv/native/<name>.so` become symlinks
-/// into that directory.
+/// to them: `bin/<program>` and every `priv/<name>.so` and
+/// `priv/native/<name>.so` become symlinks into that directory.
 #[cfg(target_os = "android")]
 pub mod android {
     use std::path::{Path, PathBuf};
@@ -356,13 +356,18 @@ pub mod android {
             .map_err(|e| e.to_string())?
             .flatten()
         {
-            let priv_native = app.path().join("priv/native");
-            for nif in std::fs::read_dir(&priv_native)
-                .into_iter()
+            // Rustler NIFs live in `priv/native`, elixir_make ones in `priv`.
+            let dirs = [app.path().join("priv"), app.path().join("priv/native")];
+            for nif in dirs
+                .iter()
+                .flat_map(std::fs::read_dir)
                 .flatten()
                 .flatten()
             {
                 let path = nif.path();
+                if !path.is_file() {
+                    continue;
+                }
                 let (Some(stem), Some("so")) = (
                     path.file_stem().and_then(|s| s.to_str()),
                     path.extension().and_then(|s| s.to_str()),

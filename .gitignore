@@ -11,3 +11,4 @@ erl_crash.dump
 /examples/*/_build/
 /examples/*/deps/
 /native/baguette_host/node_modules/
+/tmp/
