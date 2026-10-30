@@ -3,7 +3,10 @@ defmodule Gallery.View do
   use Baguette.View
   import Baguette.Kit
 
-  def mount(_args), do: {:ok, %{done: 40}}
+  keymap("ctrl-k", :open_palette, context: "Jobs")
+  keymap("escape", :close_palette)
+
+  def mount(_args), do: {:ok, %{done: 40, palette: false}}
 
   def render(assigns) do
     ~H"""
@@ -20,6 +23,17 @@ defmodule Gallery.View do
         More
       </button>
       <.skeleton class="w-64 h-4" />
+      <div class="flex gap-2 items-center">
+        <button
+          key-context="Jobs"
+          tabindex="1"
+          aria-label="Jobs panel"
+          class="px-2 border border-border"
+        >
+          Jobs
+        </button>
+        <text>{if @palette, do: "Palette open", else: "Palette closed"}</text>
+      </div>
       <list id="jobs" rows={10_000} phx-rows="jobs" class="h-40 w-64 border border-border" />
     </div>
     """
@@ -39,6 +53,9 @@ defmodule Gallery.View do
 
     {:reply, rows, assigns}
   end
+
+  def handle_action(:open_palette, assigns), do: {:noreply, %{assigns | palette: true}}
+  def handle_action(:close_palette, assigns), do: {:noreply, %{assigns | palette: false}}
 
   def handle_event("more", _values, assigns),
     do: {:noreply, %{assigns | done: min(assigns.done + 10, 100)}}

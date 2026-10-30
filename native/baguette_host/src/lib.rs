@@ -8,6 +8,7 @@
 mod beam;
 mod bridge;
 pub mod components;
+mod keymap;
 mod list;
 mod patch;
 mod pick;
@@ -93,6 +94,7 @@ pub fn run() {
                 Err(error) => notice(format!("No Elixir release to run: {error}")),
             };
             let build = move |cx: &mut tauri_plugin_gpui::gpui::App| {
+                Root::install_actions(0, cx);
                 let root = cx.new(|_| Root::new(0, frame));
                 let handle = root.clone();
                 // Window shortcuts (`phx-window-keydown`) hear every keystroke,
