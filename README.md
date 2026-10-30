@@ -93,6 +93,7 @@ Events arrive in `handle_event(event, values, assigns)`, shaped as in Phoenix:
 | `phx-submit` on a form | every named value in the form; checked checkboxes are `"on"` |
 | `phx-pick-file`, `phx-pick-save` | `phx-value-*` plus `"path"`, the chosen file; nothing on cancel |
 | `phx-window-keydown`, optionally `phx-key="Escape"` | `phx-value-*` plus `"key"` and the booleans `"ctrl"`, `"shift"`, `"alt"`, `"meta"`, for every keystroke the window hears (only `phx-key`'s, ignoring case) |
+| `phx-window-resize` | `phx-value-*` plus `"width"` and `"height"`, the window's content size in logical pixels: once when the binding first renders, then on every resize |
 
 Window keys are named as the browser's `KeyboardEvent.key` names them
 (`"Enter"`, `"Escape"`, `"ArrowUp"`, `" "`, `"F5"`, `"="`), except that
@@ -117,7 +118,7 @@ input after submitting, track it with `phx-change` and reset it.
 
 `Baguette.Test` drives views headlessly with the same events the host sends:
 `click/2`, `drag/4`, `fill/3`, `submit/2`, `pick_file/3`,
-`keydown/4` (`keydown(0, "z", [:ctrl], focus: "Title")`), `value/2`,
+`keydown/4` (`keydown(0, "z", [:ctrl], focus: "Title")`), `resize/3`, `value/2`,
 `text/1`, `icons/2` (the `<icon>` names drawn, in the element labelled),
 `tree/1`. End-to-end, `BAGUETTE_PICK_FILE=/path` makes every
 native file picker answer with that path instead of opening a dialog.

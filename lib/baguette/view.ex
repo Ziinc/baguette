@@ -73,7 +73,7 @@ defmodule Baguette.View do
 
   @impl GenServer
   def handle_info({:baguette_event, %{"type" => type} = event}, state)
-      when type in ["click", "change", "submit", "pick", "keydown"] do
+      when type in ["click", "change", "submit", "pick", "keydown", "resize"] do
     callback(state, :handle_event, [event["event"], event["values"] || %{}, state.assigns])
   end
 

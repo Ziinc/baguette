@@ -70,6 +70,7 @@ struct Renderer<'a, 'c> {
     form: Option<String>,
     seen: HashSet<String>,
     keydowns: Vec<WindowKey>,
+    resizes: Vec<WindowResize>,
 }
 
 impl Renderer<'_, '_> {
@@ -134,6 +135,12 @@ impl Renderer<'_, '_> {
             self.keydowns.push(WindowKey {
                 event: event.clone(),
                 key: attrs.get("phx-key").cloned(),
+                values: values_of(attrs),
+            });
+        }
+        if let Some(event) = attrs.get("phx-window-resize") {
+            self.resizes.push(WindowResize {
+                event: event.clone(),
                 values: values_of(attrs),
             });
         }
@@ -726,6 +733,15 @@ pub struct Root {
     checks: HashMap<String, CheckSlot>,
     forms: HashMap<String, FormInfo>,
     keydowns: Vec<WindowKey>,
+    /// The `phx-window-resize` bindings, each with the size last sent to it.
+    resizes: Vec<(WindowResize, Option<(u32, u32)>)>,
+}
+
+/// A `phx-window-resize` binding: its event and its `phx-value-*`.
+#[derive(PartialEq)]
+struct WindowResize {
+    event: String,
+    values: BTreeMap<String, String>,
 }
 
 /// A `phx-window-keydown` binding: its event, its `phx-key` filter and its
@@ -786,6 +802,30 @@ impl Root {
             checks: HashMap::new(),
             forms: HashMap::new(),
             keydowns: Vec::new(),
+            resizes: Vec::new(),
+        }
+    }
+
+    /// Sends each `phx-window-resize` binding the window's content size, in
+    /// logical pixels, when it first renders and whenever the size changes.
+    fn report_size(&mut self, resizes: Vec<WindowResize>, size: (u32, u32)) {
+        let mut previous = std::mem::take(&mut self.resizes);
+        for binding in resizes {
+            let sent = previous
+                .iter()
+                .position(|(b, _)| *b == binding)
+                .and_then(|i| previous.swap_remove(i).1);
+            if sent != Some(size) {
+                let mut values: Map<String, Value> = binding
+                    .values
+                    .iter()
+                    .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                    .collect();
+                values.insert("width".into(), Value::from(size.0));
+                values.insert("height".into(), Value::from(size.1));
+                self.emit("resize", &binding.event, values);
+            }
+            self.resizes.push((binding, Some(size)));
         }
     }
 
@@ -998,7 +1038,7 @@ impl gpui::Render for Root {
         let frame = std::mem::take(&mut self.frame);
         let mut inputs = std::mem::take(&mut self.inputs);
         let mut checks = std::mem::take(&mut self.checks);
-        let (content, forms, seen) = {
+        let (content, forms, seen, resizes) = {
             let mut renderer = Renderer {
                 window_id: self.window,
                 theme: &frame.theme,
@@ -1010,14 +1050,21 @@ impl gpui::Render for Root {
                 form: None,
                 seen: HashSet::new(),
                 keydowns: Vec::new(),
+                resizes: Vec::new(),
             };
             let content = frame
                 .root
                 .as_ref()
                 .map(|node| renderer.render(node, "root"));
             self.keydowns = renderer.keydowns;
-            (content, renderer.forms, renderer.seen)
+            (content, renderer.forms, renderer.seen, renderer.resizes)
         };
+        let viewport = window.viewport_size();
+        let size = (
+            f32::from(viewport.width).round() as u32,
+            f32::from(viewport.height).round() as u32,
+        );
+        self.report_size(resizes, size);
         // Inputs no longer rendered drop their state.
         inputs.retain(|path, _| seen.contains(path));
         checks.retain(|path, _| seen.contains(path));

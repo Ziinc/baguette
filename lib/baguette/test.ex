@@ -22,6 +22,7 @@ defmodule Baguette.Test do
   | `submit/2` | the form's `phx-submit` with every named value in it |
   | `pick_file/3` | the picker's `phx-pick-file` or `phx-pick-save` with its `phx-value-*` and `"path"` |
   | `keydown/4` | every matching `phx-window-keydown` with its `phx-value-*`, `"key"`, `"ctrl"`, `"shift"`, `"alt"` and `"meta"` |
+  | `resize/3` | every `phx-window-resize` with its `phx-value-*`, `"width"` and `"height"` |
   """
 
   alias Baguette.Host
@@ -107,6 +108,32 @@ defmodule Baguette.Test do
       [] -> raise ArgumentError, "no file picker labelled #{inspect(label)} in window #{window}"
       _ -> raise ArgumentError, "more than one file picker labelled #{inspect(label)}"
     end
+  end
+
+  @doc """
+  Resizes `window` to `width` x `height` pixels, as the native host reports
+  it to `phx-window-resize`: each binding gets its event with its
+  `phx-value-*` and `%{"width" => width, "height" => height}`.
+  """
+  @spec resize(Host.window(), pos_integer(), pos_integer()) :: :ok
+  def resize(window, width, height) do
+    bindings =
+      for {_, %{"a" => %{"phx-window-resize" => event}} = el, _} <- entries(window),
+          do: {event, el}
+
+    if bindings == [],
+      do: raise(ArgumentError, "no phx-window-resize in window #{window}")
+
+    for {event, el} <- bindings do
+      dispatch(
+        window,
+        "resize",
+        event,
+        Map.merge(values(el), %{"width" => width, "height" => height})
+      )
+    end
+
+    sync(window)
   end
 
   @doc """
