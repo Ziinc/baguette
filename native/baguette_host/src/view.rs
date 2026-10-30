@@ -27,6 +27,12 @@ pub enum Message {
     Rows {
         rows: Segment,
     },
+    /// What changed since the last frame (`patch.rs`), and the lists' rows.
+    Patch {
+        patch: Vec<crate::patch::Op>,
+        #[serde(default)]
+        lists: HashMap<String, Segment>,
+    },
     Frame(Frame),
 }
 
@@ -41,7 +47,7 @@ pub struct Frame {
     pub lists: HashMap<String, Segment>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum Node {
     Text(String),
@@ -862,6 +868,22 @@ impl Root {
         cx.notify();
     }
 
+    /// Applies a patch to the frame shown. One that doesn't fit leaves it
+    /// part patched, and asks Elixir for the whole frame.
+    pub fn patch(
+        &mut self,
+        ops: Vec<crate::patch::Op>,
+        lists: HashMap<String, Segment>,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        if let Err(error) = crate::patch::apply(&mut self.frame.root, ops) {
+            crate::log_line(&format!("baguette: patch failed ({error}); resyncing"));
+            bridge::emit(&json!({"type": "resync", "window": self.window}));
+        }
+        self.reset_lists(lists);
+        cx.notify();
+    }
+
     fn reset_lists(&mut self, mut lists: HashMap<String, Segment>) {
         for (key, list) in &mut self.lists {
             list.reset(lists.remove(key));
@@ -1212,6 +1234,12 @@ mod tests {
             (rows.id.as_str(), rows.start, rows.rows.len()),
             ("jobs", 9, 1)
         );
+
+        let patch = r#"{"patch": [{"op": "replace", "at": [0], "node": "2"}], "lists": {}}"#;
+        let Ok(Message::Patch { patch, .. }) = serde_json::from_str(patch) else {
+            panic!("not a patch");
+        };
+        assert_eq!(patch.len(), 1);
     }
 
     #[test]

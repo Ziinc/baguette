@@ -9,6 +9,7 @@ mod beam;
 mod bridge;
 pub mod components;
 mod list;
+mod patch;
 mod pick;
 #[cfg(feature = "playwright")]
 mod playwright;
@@ -119,6 +120,9 @@ pub fn run() {
                             }
                             Ok(Message::Rows { rows }) => {
                                 handle.update(cx, |root, cx| root.rows(rows, cx))
+                            }
+                            Ok(Message::Patch { patch, lists }) => {
+                                handle.update(cx, |root, cx| root.patch(patch, lists, cx))
                             }
                             Err(error) => {
                                 let frame = notice(format!("Invalid render from Elixir: {error}"));
