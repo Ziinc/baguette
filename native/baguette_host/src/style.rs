@@ -76,6 +76,8 @@ fn apply_one<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         "justify-end" => s.justify_end(),
         "justify-between" => s.justify_between(),
         "size-full" => s.size_full(),
+        "relative" => s.relative(),
+        "absolute" => s.absolute(),
         "w-full" => s.w_full(),
         "h-full" => s.h_full(),
         "overflow-hidden" => s.overflow_hidden(),
@@ -126,7 +128,7 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
     }
     const SPACING: &[&str] = &[
         "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr", "mx", "my", "mt", "mb", "p",
-        "m", "w", "h",
+        "m", "w", "h", "left", "top", "right", "bottom",
     ];
     for name in SPACING {
         if let Some(len) = class
@@ -152,6 +154,10 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
                 "w" => s.w(len),
                 "h" => s.h(len),
                 "size" => s.size(len),
+                "left" => s.left(len),
+                "top" => s.top(len),
+                "right" => s.right(len),
+                "bottom" => s.bottom(len),
                 _ => s.min_w(len),
             };
         }
@@ -184,7 +190,7 @@ fn spacing(value: &str) -> Option<f32> {
     }
 }
 
-fn color(value: &str, theme: &Theme) -> Option<Hsla> {
+pub fn color(value: &str, theme: &Theme) -> Option<Hsla> {
     let (value, alpha) = match value.rsplit_once('/') {
         Some((value, alpha)) => (value, alpha.parse::<f32>().ok()? / 100.),
         None => (value, 1.),

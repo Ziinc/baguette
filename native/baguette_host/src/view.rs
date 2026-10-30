@@ -60,6 +60,7 @@ pub fn render(node: &Node, path: &str, window: u32, theme: &Theme) -> AnyElement
         }
         #[cfg(not(feature = "playwright"))]
         Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
+        Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, theme),
         Node::Element {
             tag,
             attrs,
@@ -106,6 +107,20 @@ fn render_element(
             el.aria_label(SharedString::from(label.clone()))
         });
 
+    let element = match attrs.get("phx-drag").filter(|_| !disabled) {
+        Some(event) => {
+            let (up, up_out) = drag_handlers(window, path, event, attrs);
+            let key = path.to_owned();
+            element
+                .on_mouse_down(gpui::MouseButton::Left, move |e, _, _| {
+                    DRAGS.with(|d| d.borrow_mut().insert(key.clone(), e.position));
+                })
+                .on_mouse_up(gpui::MouseButton::Left, up)
+                .on_mouse_up_out(gpui::MouseButton::Left, up_out)
+        }
+        None => element,
+    };
+
     let Some(on_click) = click_handler(window, attrs).filter(|_| !disabled) else {
         return observed!(element);
     };
@@ -128,29 +143,94 @@ fn render_element(
     )
 }
 
-/// With the `playwright` feature, registers the element for Playwright's
-/// locators: its role, label and value come from the accessibility calls below.
-#[cfg(feature = "playwright")]
-fn observe(
-    element: gpui::Stateful<gpui::Div>,
-) -> gpui_kit::base::ObservedElement<gpui::Stateful<gpui::Div>> {
-    use gpui_kit::base::TestSupportExt;
-    element.test_support()
-}
-#[cfg(not(feature = "playwright"))]
-fn observe(element: gpui::Stateful<gpui::Div>) -> gpui::Stateful<gpui::Div> {
-    element
+thread_local! {
+    /// Where the pointer went down on each `phx-drag` element still held,
+    /// by element path.
+    static DRAGS: std::cell::RefCell<std::collections::HashMap<String, gpui::Point<gpui::Pixels>>> =
+        Default::default();
 }
 
-/// Text as Playwright's `getByText` sees it, with the `playwright` feature.
-fn observe_text(text: SharedString) -> AnyElement {
-    #[cfg(feature = "playwright")]
-    {
-        use gpui_kit::base::TestTextExt;
-        text.clone().test_text(text).into_any_element()
-    }
-    #[cfg(not(feature = "playwright"))]
-    text.into_any_element()
+type MouseUp = Box<dyn Fn(&gpui::MouseUpEvent, &mut gpui::Window, &mut gpui::App)>;
+
+/// What releasing a `phx-drag` element does, over it or anywhere else:
+/// send the event, its `phx-value-*` attributes and how far the pointer
+/// moved (`dx`, `dy`) to the view that owns `window`.
+fn drag_handlers(
+    window: u32,
+    path: &str,
+    event: &str,
+    attrs: &BTreeMap<String, String>,
+) -> (MouseUp, MouseUp) {
+    let release = {
+        let (path, event, values) = (path.to_owned(), event.to_owned(), values_of(attrs));
+        move |e: &gpui::MouseUpEvent, _: &mut gpui::Window, _: &mut gpui::App| {
+            let Some(start) = DRAGS.with(|d| d.borrow_mut().remove(&path)) else {
+                return;
+            };
+            bridge::emit(&serde_json::json!({
+                "type": "drag",
+                "window": window,
+                "event": event,
+                "values": values,
+                "dx": f32::from(e.position.x - start.x),
+                "dy": f32::from(e.position.y - start.y),
+            }));
+        }
+    };
+    let release = std::rc::Rc::new(release);
+    let other = release.clone();
+    (
+        Box::new(move |e, w, cx| release(e, w, cx)),
+        Box::new(move |e, w, cx| other(e, w, cx)),
+    )
+}
+
+/// A straight line from `x1`,`y1` to `x2`,`y2`, in pixels from the parent's
+/// top left; `stroke-<color>` and `stroke-width` style it.
+fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
+    let at = |key: &str| {
+        attrs
+            .get(key)
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(0.)
+    };
+    let (x1, y1, x2, y2) = (at("x1"), at("y1"), at("x2"), at("y2"));
+    let width = attrs
+        .get("stroke-width")
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(2.);
+    let color = attrs
+        .get("class")
+        .into_iter()
+        .flat_map(|c| c.split_whitespace())
+        .find_map(|c| style::color(c.strip_prefix("stroke-")?, theme))
+        .unwrap_or_else(|| gpui::black().into());
+    gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| {
+            let origin = bounds.origin;
+            let mut path = gpui::PathBuilder::stroke(gpui::px(width));
+            path.move_to(origin + gpui::point(gpui::px(x1), gpui::px(y1)));
+            path.line_to(origin + gpui::point(gpui::px(x2), gpui::px(y2)));
+            if let Ok(path) = path.build() {
+                window.paint_path(path, color);
+            }
+        },
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+    .into_any_element()
+}
+
+fn values_of(attrs: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+    attrs
+        .iter()
+        .filter_map(|(key, value)| {
+            Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone()))
+        })
+        .collect()
 }
 
 /// What clicking an element with `phx-click` does: send the event and its
@@ -160,12 +240,7 @@ pub fn click_handler(
     attrs: &BTreeMap<String, String>,
 ) -> Option<impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static> {
     let event = attrs.get("phx-click")?.clone();
-    let values: BTreeMap<String, String> = attrs
-        .iter()
-        .filter_map(|(key, value)| {
-            Some((key.strip_prefix("phx-value-")?.to_owned(), value.clone()))
-        })
-        .collect();
+    let values = values_of(attrs);
     Some(
         move |_: &gpui::ClickEvent, _: &mut gpui::Window, _: &mut gpui::App| {
             bridge::emit(&serde_json::json!({

@@ -76,6 +76,12 @@ defmodule Baguette.View do
     callback(state, :handle_event, [event["event"], event["values"] || %{}, state.assigns])
   end
 
+  # A drag reports where it ended relative to where it started, in pixels.
+  def handle_info({:baguette_event, %{"type" => "drag"} = event}, state) do
+    values = Map.merge(event["values"] || %{}, Map.take(event, ["dx", "dy"]))
+    callback(state, :handle_event, [event["event"], values, state.assigns])
+  end
+
   def handle_info({:baguette_event, _event}, state), do: {:noreply, state}
 
   def handle_info(msg, state), do: callback(state, :handle_info, [msg, state.assigns])
