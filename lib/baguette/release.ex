@@ -337,7 +337,7 @@ defmodule Baguette.Release do
   # Each dependency's (and umbrella app's) source, by app name.
   defp nif_sources do
     Map.merge(Mix.Project.apps_paths() || %{}, Mix.Project.deps_paths())
-    |> Map.new(fn {app, path} -> {Atom.to_string(app), path} end)
+    |> Map.new(fn {app, path} -> {Atom.to_string(app), Path.expand(path)} end)
   end
 
   defp ndk_clang(triple) do
