@@ -153,6 +153,8 @@ thread_local! {
         Default::default();
 }
 
+const DRAG_THRESHOLD: f32 = 3.;
+
 type MouseUp = Box<dyn Fn(&gpui::MouseUpEvent, &mut gpui::Window, &mut gpui::App)>;
 
 /// What releasing a `phx-drag` element does, over it or anywhere else:
@@ -170,13 +172,22 @@ fn drag_handlers(
             let Some(start) = DRAGS.with(|d| d.borrow_mut().remove(&path)) else {
                 return;
             };
+            let (dx, dy) = (
+                f32::from(e.position.x - start.x),
+                f32::from(e.position.y - start.y),
+            );
+            // A press released where it started (give or take a shaky hand
+            // or finger) is a click, not a drag.
+            if dx.abs() < DRAG_THRESHOLD && dy.abs() < DRAG_THRESHOLD {
+                return;
+            }
             bridge::emit(&serde_json::json!({
                 "type": "drag",
                 "window": window,
                 "event": event,
                 "values": values,
-                "dx": f32::from(e.position.x - start.x),
-                "dy": f32::from(e.position.y - start.y),
+                "dx": dx,
+                "dy": dy,
             }));
         }
     };
