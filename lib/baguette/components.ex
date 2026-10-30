@@ -16,6 +16,11 @@ defmodule Baguette.Components do
 
   `phx-*` bindings, `aria-*`, `id` and `class` pass through on every
   component. The module recompiles when the manifest changes.
+
+  The manifest records the GPUI and gpui-kit versions its set was built
+  against and a hash of it all. When the native host starts, it compares
+  the hash of every set compiled into Elixir (`compiled/0`) with its own,
+  and refuses to run with a set that differs.
   """
 
   import Phoenix.Component, only: [sigil_H: 2, dynamic_tag: 1, render_slot: 1]
@@ -23,7 +28,9 @@ defmodule Baguette.Components do
   defmacro __using__(opts) do
     manifest = opts |> Keyword.fetch!(:manifest) |> Path.expand(Path.dirname(__CALLER__.file))
     prefix = Keyword.get(opts, :prefix, "")
-    %{"version" => 1, "components" => components} = manifest |> File.read!() |> JSON.decode!()
+
+    %{"version" => 2, "set" => set, "hash" => hash, "components" => components} =
+      manifest |> File.read!() |> JSON.decode!()
 
     defs = for component <- components, do: define(component, prefix)
 
@@ -33,6 +40,9 @@ defmodule Baguette.Components do
 
       @doc "The components in the manifest, as the host describes them."
       def __manifest__, do: unquote(Macro.escape(components))
+
+      @doc "The component set's name and its manifest's hash."
+      def __set__, do: {unquote(set), unquote(hash)}
 
       unquote_splicing(defs)
     end
@@ -76,6 +86,20 @@ defmodule Baguette.Components do
 
     opts = if opts[:required], do: Keyword.delete(opts, :default), else: opts
     quote do: attr(unquote(name), unquote(type), unquote(opts))
+  end
+
+  @doc """
+  Every component set compiled into the loaded applications, as set name
+  to manifest hash: what the native host checks against its own sets.
+  """
+  @spec compiled() :: %{String.t() => String.t()}
+  def compiled do
+    for {app, _, _} <- Application.loaded_applications(),
+        module <- Application.spec(app, :modules) || [],
+        Code.ensure_loaded?(module),
+        function_exported?(module, :__set__, 0),
+        into: %{},
+        do: module.__set__()
   end
 
   @doc false

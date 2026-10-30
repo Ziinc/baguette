@@ -13,6 +13,7 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(baguette_beam)");
     println!("cargo::rustc-check-cfg=cfg(baguette_embedded_release)");
     embed_release();
+    record_versions();
     let Some(dir) = env::var_os("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
@@ -74,4 +75,30 @@ fn embed_release() {
     std::fs::write(&out, bytes).unwrap();
     println!("cargo::rustc-env=BAGUETTE_RELEASE_HASH={hash:016x}");
     println!("cargo::rustc-cfg=baguette_embedded_release");
+}
+
+/// The GPUI and gpui-kit versions in Cargo.lock, which each component set's
+/// manifest records (`components.rs`).
+fn record_versions() {
+    let manifest = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
+    let lock = manifest.join("../Cargo.lock");
+    println!("cargo::rerun-if-changed={}", lock.display());
+    let lock = std::fs::read_to_string(&lock).unwrap_or_default();
+    for (crate_name, var) in [
+        ("gpui-pre", "BAGUETTE_GPUI_VERSION"),
+        ("gpui-kit", "BAGUETTE_GPUI_KIT_VERSION"),
+    ] {
+        let version = locked_version(&lock, crate_name).unwrap_or("unknown");
+        println!("cargo::rustc-env={var}={version}");
+    }
+}
+
+fn locked_version<'a>(lock: &'a str, crate_name: &str) -> Option<&'a str> {
+    let name = format!("name = \"{crate_name}\"\n");
+    let at = lock.find(&name)? + name.len();
+    lock[at..]
+        .lines()
+        .next()?
+        .strip_prefix("version = \"")?
+        .strip_suffix('"')
 }
