@@ -113,8 +113,11 @@ fn render_element(
             let (up, up_out) = drag_handlers(window, path, event, attrs);
             let key = path.to_owned();
             element
-                .on_mouse_down(gpui::MouseButton::Left, move |e, _, _| {
+                // Every element under the pointer hears the press, topmost
+                // first: the topmost draggable claims it.
+                .on_mouse_down(gpui::MouseButton::Left, move |e, _, cx| {
                     DRAGS.with(|d| d.borrow_mut().insert(key.clone(), e.position));
+                    cx.stop_propagation();
                 })
                 .on_mouse_up(gpui::MouseButton::Left, up)
                 .on_mouse_up_out(gpui::MouseButton::Left, up_out)
