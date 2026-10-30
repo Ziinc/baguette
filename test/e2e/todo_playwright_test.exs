@@ -36,6 +36,16 @@ defmodule Baguette.E2E.TodoPlaywrightTest do
     assert Playwright.checked?(page, "Walk dog") == false
   end
 
+  test "fill scrolls an input below its container's fold into view and types there",
+       %{page: page} do
+    Playwright.fill(page, "Title", "keep me")
+    assert :ok = Playwright.fill(page, "Note", "noted")
+
+    assert Playwright.input_value(page, "Note") == "noted"
+    assert :ok = Playwright.await_text(page, "Note: noted")
+    assert Playwright.input_value(page, "Title") == "keep me"
+  end
+
   test "checkboxes check and uncheck", %{page: page} do
     for title <- ["Buy milk", "Walk dog"] do
       Playwright.fill(page, "Title", title)

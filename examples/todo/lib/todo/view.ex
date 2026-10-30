@@ -2,7 +2,7 @@ defmodule Todo.View do
   @moduledoc "A to-do list: a form with a text input, checkboxes in a list."
   use Baguette.View
 
-  def mount(_args), do: {:ok, %{draft: "", todos: [], next: 1}}
+  def mount(_args), do: {:ok, %{draft: "", note: "", todos: [], next: 1}}
 
   def render(assigns) do
     ~H"""
@@ -25,11 +25,19 @@ defmodule Todo.View do
         </li>
       </ul>
       <text>{Enum.count(@todos, &(not &1.done))} of {length(@todos)} left</text>
+      <%!-- A short scrolling panel whose input starts below its fold. --%>
+      <div aria-label="Notes" class="h-[64px] flex-none flex-col overflow-y-auto border border-[#e2e8f0]">
+        <div class="h-[160px] flex-none" />
+        <input name="note" value={@note} phx-change="note" aria-label="Note" />
+      </div>
+      <text>Note: {@note}</text>
     </div>
     """
   end
 
   def handle_event("draft", %{"title" => title}, assigns), do: {:noreply, %{assigns | draft: title}}
+
+  def handle_event("note", %{"note" => note}, assigns), do: {:noreply, %{assigns | note: note}}
 
   def handle_event("add", %{"title" => title}, assigns) do
     case String.trim(title) do
