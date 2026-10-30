@@ -26,6 +26,17 @@ defmodule GalleryTest do
     assert Test.text(0) =~ "Palette closed"
   end
 
+  test "copy and paste go through the clipboard; windows open and take titles" do
+    Test.click(0, "Copy")
+    Test.click(0, "Paste")
+    assert Test.text(0) =~ "Pasted: copied from gallery"
+    Test.click(0, "Rename")
+    assert Test.text(0) =~ "Title: Gallery renamed"
+    Test.click(0, "Details")
+    assert Test.text(0) =~ "Details open"
+    assert Test.text(0) =~ "Appearance: light"
+  end
+
   defp flatten(%{"c" => children} = el), do: [el | Enum.flat_map(children, &flatten/1)]
 
   defp flatten(_), do: []

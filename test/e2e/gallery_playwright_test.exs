@@ -54,4 +54,18 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     Playwright.press(page, "Control+k")
     assert :ok = Playwright.await_text(page, "Palette open")
   end
+
+  test "platform calls: clipboard, window title, a second window", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Appearance: light")
+
+    Playwright.click(page, "Copy")
+    Playwright.click(page, "Paste")
+    assert :ok = Playwright.await_text(page, "Pasted: copied from gallery")
+
+    Playwright.click(page, "Rename")
+    assert :ok = Playwright.await_text(page, "Title: Gallery renamed")
+
+    Playwright.click(page, "Details")
+    assert :ok = Playwright.await_text(page, "Details open")
+  end
 end
