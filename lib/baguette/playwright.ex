@@ -217,6 +217,25 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
       :ok
     end
 
+    @doc """
+    Turns the mouse wheel over `target` (a string is a `getByLabel` label) by
+    `dx`, `dy` pixels, as a user scrolls a scrolling element.
+    """
+    @spec scroll(page(), target(), number(), number()) :: :ok
+    def scroll(page, target, dx, dy) do
+      %{"x" => x, "y" => y, "width" => w, "height" => h} = bounding_box(page, target)
+      {:ok, _} = Page.mouse_move(page.page, page.opts ++ [x: x + w / 2, y: y + h / 2])
+
+      %{} =
+        Connection.send(
+          page.opts[:connection],
+          %{guid: page.page, method: :mouse_wheel, params: %{delta_x: dx, delta_y: dy}},
+          page.opts[:timeout]
+        )
+
+      :ok
+    end
+
     ## Reads
 
     @doc "The text in `target` (a string names a textbox)."
