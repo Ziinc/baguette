@@ -22,7 +22,7 @@ playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/p
 async-channel = "2"
 # Text inputs and checkboxes, and the Root that observes them for Playwright.
 gpui-kit = { version = "=0.7.3", default-features = false, features = ["component", "assets"] }
-gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", optional = true }
+gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", rev = "14ec1fe92f2c9ca58607808abdc824d20fa1ca4d", optional = true }
 baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }
 # Native open and save dialogs for phx-pick-file / phx-pick-save.

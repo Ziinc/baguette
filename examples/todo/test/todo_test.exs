@@ -17,4 +17,9 @@ defmodule TodoTest do
     Test.click(0, "Delete Walk dog")
     assert Test.text(0) =~ "0 of 1 left"
   end
+
+  test "the note echoes what is typed" do
+    Test.fill(0, "Note", "noted")
+    assert Test.text(0) =~ "Note: noted"
+  end
 end
