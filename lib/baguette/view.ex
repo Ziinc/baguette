@@ -37,6 +37,19 @@ defmodule Baguette.View do
   the rest of the template. `id` names the list; it must be unique in the
   window.
 
+  ## Keymaps and focus
+
+      keymap "secondary-k", :open_palette, context: "Jobs"
+      keymap "escape", :close
+
+      def handle_action(:open_palette, assigns), do: {:noreply, %{assigns | palette: true}}
+
+  binds keystrokes (GPUI's syntax: `secondary-` is Cmd on macOS and Ctrl
+  elsewhere) to actions, which `handle_action/2` receives. A binding with a
+  `context:` fires only while focus is inside an element with that
+  `key-context`. An element with `tabindex="N"` takes focus when clicked,
+  and Tab and Shift-Tab move focus in `tabindex` order.
+
   Start it in your supervision tree with
   `{MyApp.CounterView, theme: MyApp.Theme}`. Templates use the same tags,
   classes, function components and `phx-click`/`phx-value-*` bindings as a
@@ -51,13 +64,17 @@ defmodule Baguette.View do
   @callback handle_info(msg :: term(), assigns()) :: {:noreply, assigns()}
   @callback handle_rows(event :: String.t(), Range.t(), assigns()) ::
               {:reply, [Phoenix.LiveView.Rendered.t()], assigns()}
-  @optional_callbacks handle_event: 3, handle_info: 2, handle_rows: 3
+  @callback handle_action(action :: atom(), assigns()) :: {:noreply, assigns()}
+  @optional_callbacks handle_event: 3, handle_info: 2, handle_rows: 3, handle_action: 2
 
   defmacro __using__(_opts) do
     quote do
       @behaviour Baguette.View
       # Function components (`attr`, `slot`) can live next to the view.
       use Phoenix.Component
+      import Baguette.View, only: [keymap: 2, keymap: 3]
+      Module.register_attribute(__MODULE__, :baguette_keymap, accumulate: true)
+      @before_compile Baguette.View
 
       def child_spec(opts) do
         %{
@@ -65,6 +82,24 @@ defmodule Baguette.View do
           start: {Baguette.View, :start_link, [__MODULE__, opts]}
         }
       end
+    end
+  end
+
+  @doc """
+  Binds `keys` to `action` while focus is in `context:` (any `key-context`
+  attribute), or anywhere without one. See "Keymaps and focus".
+  """
+  defmacro keymap(keys, action, opts \\ []) when is_binary(keys) and is_atom(action) do
+    quote do
+      @baguette_keymap {unquote(keys), unquote(action), unquote(opts[:context])}
+    end
+  end
+
+  @doc false
+  defmacro __before_compile__(_env) do
+    quote do
+      @doc false
+      def __keymap__, do: Enum.reverse(@baguette_keymap)
     end
   end
 
@@ -112,6 +147,15 @@ defmodule Baguette.View do
     {:noreply, state}
   end
 
+  def handle_info({:baguette_event, %{"type" => "action", "action" => name}}, state) do
+    case for {_keys, action, _context} <- state.module.__keymap__(),
+             Atom.to_string(action) == name,
+             do: action do
+      [action | _] -> callback(state, :handle_action, [action, state.assigns])
+      [] -> {:noreply, state}
+    end
+  end
+
   def handle_info({:baguette_event, _event}, state), do: {:noreply, state}
 
   def handle_info(msg, state), do: callback(state, :handle_info, [msg, state.assigns])
@@ -137,9 +181,22 @@ defmodule Baguette.View do
         {[{id, %{"start" => first, "rows" => rows}}], state}
       end)
 
-    frame = %{"theme" => state.theme, "root" => root, "lists" => Map.new(lists)}
+    frame = %{
+      "theme" => state.theme,
+      "root" => root,
+      "lists" => Map.new(lists),
+      "keymap" => keymap(state.module)
+    }
+
     Baguette.Host.render(state.window, frame)
     state
+  end
+
+  defp keymap(module) do
+    for {keys, action, context} <- module.__keymap__() do
+      binding = %{"keys" => keys, "action" => Atom.to_string(action)}
+      if context, do: Map.put(binding, "context", context), else: binding
+    end
   end
 
   # Rows `first` to `last` (exclusive) as nodes, from handle_rows/3.

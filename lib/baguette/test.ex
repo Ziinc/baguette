@@ -200,6 +200,72 @@ defmodule Baguette.Test do
   end
 
   @doc """
+  Presses `keys` (GPUI's syntax, as the view's `keymap` writes them) as the
+  host dispatches it to the view's keymap: the binding whose `context:` is
+  the `key-context` nearest the focused element wins, then one without a
+  context. With `focus: label`, the element labelled `label` has focus;
+  without it nothing has, and only bindings without a context fire.
+  """
+  @spec keystroke(Host.window(), String.t(), keyword()) :: :ok
+  def keystroke(window, keys, opts \\ []) do
+    all = entries(window)
+
+    contexts =
+      case opts[:focus] do
+        nil ->
+          []
+
+        label ->
+          # A focusable element wins over its own text.
+          matches = for {_, el, _} = entry <- all, labelled?(el, label), do: entry
+          focusable = for {_, %{"a" => %{"tabindex" => _}}, _} = entry <- matches, do: entry
+
+          path =
+            case if(length(focusable) == 1, do: focusable, else: matches) do
+              [{path, _, _}] ->
+                path
+
+              [] ->
+                raise ArgumentError, "no element labelled #{inspect(label)} in window #{window}"
+
+              _ ->
+                raise ArgumentError, "more than one element labelled #{inspect(label)}"
+            end
+
+          # Innermost first.
+          for {p, %{"a" => %{"key-context" => context}}, _} <- Enum.reverse(all),
+              p == path or String.starts_with?(path, p <> "."),
+              do: context
+      end
+
+    bindings =
+      for %{"keys" => ^keys} = b <- (Host.last_frame(window) || %{})["keymap"] || [], do: b
+
+    ranked = Enum.map(contexts, fn c -> Enum.find(bindings, &(&1["context"] == c)) end)
+
+    case Enum.find(ranked, & &1) || Enum.find(bindings, &(&1["context"] == nil)) do
+      nil -> sync(window)
+      %{"action" => action} -> dispatch_action(window, action)
+    end
+  end
+
+  @doc "The labels of the elements with a `tabindex`, in the order Tab visits them."
+  @spec focus_order(Host.window()) :: [String.t()]
+  def focus_order(window) do
+    for(
+      {_, %{"a" => %{"tabindex" => i} = attrs} = el, _} <- entries(window),
+      do: {String.to_integer(i), attrs["aria-label"] || el |> texts() |> Enum.join(" ")}
+    )
+    |> Enum.sort_by(&elem(&1, 0))
+    |> Enum.map(&elem(&1, 1))
+  end
+
+  defp dispatch_action(window, action) do
+    Host.dispatch(%{"type" => "action", "window" => window, "action" => action})
+    sync(window)
+  end
+
+  @doc """
   The names of the `<icon>`s in `window`, in order, or only those inside
   the element labelled `label`.
   """

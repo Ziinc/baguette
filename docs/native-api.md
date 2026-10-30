@@ -128,6 +128,18 @@ tests both read it, so the two sides can't drift apart.
   the host send `resync`, and gets the whole frame. A new theme sends the
   whole frame too. `test/fixtures/patches.json` holds the cases both sides
   are tested against.
+- **Keymaps and focus** (step 5). `keymap "secondary-k", :open_palette,
+  context: "Jobs"` in a `Baguette.View` declares a binding; full frames
+  carry the keymap and the host binds each new one once with `KeyBinding`
+  and `bind_keys` (`keymap.rs`), as a single `ElixirAction` type carrying
+  the action's name. A global `on_action` listener sends it back, and the
+  view calls `handle_action(action, assigns)`. `key-context="Jobs"` on an
+  element is its `key_context`; `tabindex="N"` gives it a focus handle with
+  that tab index (`track_focus`), so a click focuses it and gpui-kit's Tab
+  and Shift-Tab follow the order. The window's content holds focus when
+  nothing in it does, as a browser's body does, so Tab and context-free
+  bindings work before anything is clicked. `Baguette.Test.keystroke/3` and
+  `focus_order/1` drive it headlessly.
 
 ## Next, in order
 

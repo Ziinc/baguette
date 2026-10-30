@@ -35,4 +35,23 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Job 77")
     refute Playwright.visible?(page, text: "Job 0")
   end
+
+  test "keymaps fire only with focus in their context", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Palette closed")
+    Playwright.press(page, "Control+k")
+    refute Playwright.visible?(page, text: "Palette open")
+
+    Playwright.click(page, "Jobs panel")
+    Playwright.press(page, "Control+k")
+    assert :ok = Playwright.await_text(page, "Palette open")
+    Playwright.press(page, "Escape")
+    assert :ok = Playwright.await_text(page, "Palette closed")
+  end
+
+  test "Tab moves focus to the first tabindex", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Palette closed")
+    Playwright.press(page, "Tab")
+    Playwright.press(page, "Control+k")
+    assert :ok = Playwright.await_text(page, "Palette open")
+  end
 end

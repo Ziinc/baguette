@@ -45,6 +45,9 @@ pub struct Frame {
     pub root: Option<Node>,
     #[serde(default)]
     pub lists: HashMap<String, Segment>,
+    /// The view's key bindings (`keymap` in Elixir).
+    #[serde(default)]
+    pub keymap: Vec<crate::keymap::Binding>,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq)]
@@ -64,6 +67,27 @@ pub enum Node {
 /// With the `playwright` feature, registers an element with gpui-kit so
 /// Playwright's locators find it by its role and label.
 macro_rules! observed {
+    // An element that takes focus is observed before it tracks its handle,
+    // so Playwright sees the binding.
+    ($element:expr, $focus:expr) => {{
+        let focus: Option<gpui::FocusHandle> = $focus;
+        #[cfg(feature = "playwright")]
+        {
+            use gpui_kit::base::TestSupportExt;
+            let element = $element.test_support();
+            match focus {
+                Some(handle) => element.track_focus(&handle).into_any_element(),
+                None => element.into_any_element(),
+            }
+        }
+        #[cfg(not(feature = "playwright"))]
+        {
+            match focus {
+                Some(handle) => $element.track_focus(&handle).into_any_element(),
+                None => $element.into_any_element(),
+            }
+        }
+    }};
     ($element:expr) => {{
         #[cfg(feature = "playwright")]
         {
@@ -88,6 +112,7 @@ struct Renderer<'a, 'c> {
     inputs: &'a mut HashMap<String, InputSlot>,
     checks: &'a mut HashMap<String, CheckSlot>,
     lists: &'a mut HashMap<String, ListState>,
+    focus: &'a mut HashMap<String, gpui::FocusHandle>,
     forms: HashMap<String, FormInfo>,
     form: Option<String>,
     seen: HashSet<String>,
@@ -229,6 +254,23 @@ impl Renderer<'_, '_> {
                 el.tooltip(move |window, cx| Tooltip::new(title.clone()).build(window, cx))
             });
 
+        // `key-context` scopes key bindings to focus inside the element;
+        // `tabindex` makes it take focus, in that order on Tab.
+        let element = element.when_some(attrs.get("key-context"), |el, context| {
+            el.key_context(context.as_str())
+        });
+        let tab_index = attrs.get("tabindex").and_then(|i| i.parse::<isize>().ok());
+        let focus = tab_index.map(|index| {
+            self.seen.insert(format!("focus:{path}"));
+            let cx = &mut *self.cx;
+            self.focus
+                .entry(path.to_owned())
+                .or_insert_with(|| cx.focus_handle())
+                .clone()
+                .tab_index(index)
+                .tab_stop(true)
+        });
+
         let element = match attrs.get("phx-drag").filter(|_| !disabled) {
             Some(event) => {
                 let (up, up_out) = drag_handlers(window, path, event, attrs);
@@ -266,7 +308,7 @@ impl Renderer<'_, '_> {
                 (None, None) => None,
             };
         let Some(on_click) = on_click.filter(|_| !disabled) else {
-            return observed!(element);
+            return observed!(element, focus);
         };
         #[cfg(target_os = "android")]
         let element = element.when_some(attrs.get("aria-label"), |el, label| {
@@ -283,7 +325,8 @@ impl Renderer<'_, '_> {
             element
                 .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
                 .active(move |s| style::apply(s, active.iter(), &active_theme))
-                .on_click(move |e, w, cx| on_click(e, w, cx))
+                .on_click(move |e, w, cx| on_click(e, w, cx)),
+            focus
         )
     }
 
@@ -813,6 +856,10 @@ pub struct Root {
     inputs: HashMap<String, InputSlot>,
     checks: HashMap<String, CheckSlot>,
     lists: HashMap<String, ListState>,
+    focus: HashMap<String, gpui::FocusHandle>,
+    /// Key bindings already given to GPUI, which has no way to remove one.
+    bound: HashSet<crate::keymap::Binding>,
+    body: Option<gpui::FocusHandle>,
     forms: HashMap<String, FormInfo>,
     keydowns: Vec<WindowKey>,
 }
@@ -864,8 +911,22 @@ impl Root {
             apply_theme(&frame.theme, cx);
         }
         self.reset_lists(std::mem::take(&mut frame.lists));
+        self.bind(&frame.keymap, cx);
         self.frame = frame;
         cx.notify();
+    }
+
+    fn bind(&mut self, keymap: &[crate::keymap::Binding], cx: &mut gpui::App) {
+        for binding in keymap {
+            if self.bound.contains(binding) {
+                continue;
+            }
+            match crate::keymap::key_binding(binding, cx.keyboard_mapper().as_ref()) {
+                Ok(key) => cx.bind_keys([key]),
+                Err(error) => crate::log_line(&format!("baguette: keymap: {error}")),
+            }
+            self.bound.insert(binding.clone());
+        }
     }
 
     /// Applies a patch to the frame shown. One that doesn't fit leaves it
@@ -925,6 +986,7 @@ impl Root {
         let mut inputs = std::mem::take(&mut self.inputs);
         let mut checks = std::mem::take(&mut self.checks);
         let mut lists = std::mem::take(&mut self.lists);
+        let mut focus = std::mem::take(&mut self.focus);
         let rows = {
             let mut renderer = Renderer {
                 window_id: self.window,
@@ -934,6 +996,7 @@ impl Root {
                 inputs: &mut inputs,
                 checks: &mut checks,
                 lists: &mut lists,
+                focus: &mut focus,
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
@@ -948,6 +1011,7 @@ impl Root {
         };
         lists.insert(key.to_owned(), list);
         self.lists = lists;
+        self.focus = focus;
         self.inputs = inputs;
         self.checks = checks;
         self.frame = frame;
@@ -961,9 +1025,24 @@ impl Root {
             inputs: HashMap::new(),
             checks: HashMap::new(),
             lists: HashMap::new(),
+            focus: HashMap::new(),
+            bound: HashSet::new(),
+            body: None,
             forms: HashMap::new(),
             keydowns: Vec::new(),
         }
+    }
+
+    /// Sends every view action GPUI dispatches (`keymap.rs`) to Elixir,
+    /// whether or not focus is in the window's tree.
+    pub fn install_actions(window: u32, cx: &mut gpui::App) {
+        cx.on_action(move |action: &crate::keymap::ElixirAction, _| {
+            bridge::emit(&json!({
+                "type": "action",
+                "window": window,
+                "action": action.name.as_ref(),
+            }));
+        });
     }
 
     /// Sends each `phx-window-keydown` binding the keystroke matches. A
@@ -1176,6 +1255,7 @@ impl gpui::Render for Root {
         let mut inputs = std::mem::take(&mut self.inputs);
         let mut checks = std::mem::take(&mut self.checks);
         let mut lists = std::mem::take(&mut self.lists);
+        let mut focus = std::mem::take(&mut self.focus);
         let (content, forms, seen) = {
             let mut renderer = Renderer {
                 window_id: self.window,
@@ -1185,6 +1265,7 @@ impl gpui::Render for Root {
                 inputs: &mut inputs,
                 checks: &mut checks,
                 lists: &mut lists,
+                focus: &mut focus,
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
@@ -1203,12 +1284,27 @@ impl gpui::Render for Root {
         inputs.retain(|path, _| kept(path));
         checks.retain(|path, _| kept(path));
         lists.retain(|key, _| seen.contains(&format!("list:{key}")));
+        focus.retain(|path, _| path.contains(".rows.") || seen.contains(&format!("focus:{path}")));
         self.inputs = inputs;
         self.checks = checks;
         self.lists = lists;
+        self.focus = focus;
         self.forms = forms;
         self.frame = frame;
-        gpui::div().size_full().children(content)
+        // The window's content holds focus when nothing in it does, as a
+        // browser's body does, so bindings (Tab, keymaps without a
+        // context) reach it before anything is clicked.
+        let body = self
+            .body
+            .get_or_insert_with(|| cx.focus_handle().tab_stop(false))
+            .clone();
+        if window.focused(cx).is_none() {
+            window.focus(&body, cx);
+        }
+        observed!(
+            gpui::div().id("body").size_full().children(content),
+            Some(body)
+        )
     }
 }
 
@@ -1219,12 +1315,14 @@ mod tests {
     #[test]
     fn reads_frames_and_rows() {
         let frame = r#"{"theme": {}, "root": {"t": "list", "a": {"id": "jobs"}},
-            "lists": {"jobs": {"start": 4, "rows": ["a", "b"]}}}"#;
+            "lists": {"jobs": {"start": 4, "rows": ["a", "b"]}},
+            "keymap": [{"keys": "ctrl-k", "action": "open", "context": "Jobs"}]}"#;
         let Ok(Message::Frame(frame)) = serde_json::from_str(frame) else {
             panic!("not a frame");
         };
         assert_eq!(frame.lists["jobs"].start, 4);
         assert_eq!(frame.lists["jobs"].rows.len(), 2);
+        assert_eq!(frame.keymap[0].context.as_deref(), Some("Jobs"));
 
         let rows = r#"{"rows": {"id": "jobs", "start": 9, "rows": [{"t": "text", "c": ["x"]}]}}"#;
         let Ok(Message::Rows { rows }) = serde_json::from_str(rows) else {
