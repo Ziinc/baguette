@@ -164,6 +164,14 @@ tests both read it, so the two sides can't drift apart.
   its layout and stays observable. `<icon animate="spin">` turns with
   `with_animation`. The gallery's e2e test checks the painted pixels and
   that the pulse changes.
+- **Generated style attributes** (step 8). `mix baguette.styles` reads
+  `gpui-pre`'s rustdoc JSON (this needs nightly) and writes `style_gen.rs`.
+  That file is a sorted table with one class per argument-free `Styled`
+  method in the stable categories: about 3,100, such as `w-1/2`, `-mt-2`,
+  `p-0.5`, `rounded-t-lg`, `gap-x-3` and `cursor-grab`. `style.rs` tries the
+  table after its own classes, so the hand-written meanings win. The file
+  is committed and builds use stable Rust. Run the task again after a
+  GPUI bump.
 
 ## Next, in order
 
