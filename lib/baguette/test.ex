@@ -35,27 +35,42 @@ defmodule Baguette.Test do
   @doc "Clicks the element labelled `label` in `window`."
   @spec click(Host.window(), String.t()) :: :ok
   def click(window, label) do
-    clickable = for %{"a" => %{"phx-click" => _}} = el <- find_all(window, label), do: el
+    {event, values} = target!(window, label, "phx-click", "clickable")
+    Host.dispatch(%{"type" => "click", "window" => window, "event" => event, "values" => values})
+    sync(window)
+  end
 
-    case clickable do
+  @doc """
+  Drags the element labelled `label` in `window` by `dx`, `dy` pixels, as a
+  pointer pressed on it, moved and released does.
+  """
+  @spec drag(Host.window(), String.t(), number(), number()) :: :ok
+  def drag(window, label, dx, dy) do
+    {event, values} = target!(window, label, "phx-drag", "draggable")
+
+    Host.dispatch(%{
+      "type" => "drag",
+      "window" => window,
+      "event" => event,
+      "values" => values,
+      "dx" => dx,
+      "dy" => dy
+    })
+
+    sync(window)
+  end
+
+  defp target!(window, label, binding, kind) do
+    case for(%{"a" => %{^binding => _}} = el <- find_all(window, label), do: el) do
       [%{"a" => attrs}] ->
-        values =
-          for {"phx-value-" <> key, value} <- attrs, into: %{}, do: {key, value}
-
-        Host.dispatch(%{
-          "type" => "click",
-          "window" => window,
-          "event" => attrs["phx-click"],
-          "values" => values
-        })
-
-        sync(window)
+        values = for {"phx-value-" <> key, value} <- attrs, into: %{}, do: {key, value}
+        {attrs[binding], values}
 
       [] ->
-        raise ArgumentError, "no clickable element labelled #{inspect(label)} in window #{window}"
+        raise ArgumentError, "no #{kind} element labelled #{inspect(label)} in window #{window}"
 
       _ ->
-        raise ArgumentError, "more than one clickable element labelled #{inspect(label)}"
+        raise ArgumentError, "more than one #{kind} element labelled #{inspect(label)}"
     end
   end
 
