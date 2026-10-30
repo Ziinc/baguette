@@ -64,7 +64,8 @@ pub fn run() {
                 app,
                 tauri_plugin_gpui::GpuiConfig::new()
                     // gpui-kit's icons (a checkbox's tick, an input's clear button).
-                    .assets(gpui_kit::assets::Assets)
+                    // and every lucide icon, for `<icon name="...">`.
+                    .assets(gpui_kit::assets::AllAssets)
                     .on_launch(|cx| {
                         // gpui-kit's components: text inputs and checkboxes.
                         gpui_kit::init(cx);
@@ -91,6 +92,15 @@ pub fn run() {
             let build = move |cx: &mut tauri_plugin_gpui::gpui::App| {
                 let root = cx.new(|_| Root::new(0, frame));
                 let handle = root.clone();
+                // Window shortcuts (`phx-window-keydown`) hear every keystroke,
+                // wherever focus is, once GPUI has dispatched it.
+                let keys = root.downgrade();
+                cx.observe_keystrokes(move |event, _, cx| {
+                    if let Some(root) = keys.upgrade() {
+                        root.read(cx).on_keystroke(event);
+                    }
+                })
+                .detach();
                 cx.spawn(async move |cx| {
                     let mut first = true;
                     while let Ok(msg) = renders.recv().await {

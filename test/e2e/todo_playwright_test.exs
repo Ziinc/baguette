@@ -108,4 +108,45 @@ defmodule Baguette.E2E.TodoPlaywrightTest do
   end
 
   defp close?({r, g, b}, {r2, g2, b2}), do: abs(r - r2) + abs(g - g2) + abs(b - b2) < 40
+
+  test "window shortcuts: keys reach phx-window-keydown, typing in an input does not",
+       %{page: page} do
+    assert :ok = Playwright.await_text(page, "Last key: none")
+    assert :ok = Playwright.press(page, "x")
+    assert :ok = Playwright.await_text(page, "Last key: x")
+
+    Playwright.fill(page, "Title", "Done one")
+    Playwright.press(page, "Title", "Enter")
+    Playwright.type(page, "Title", "abc")
+    Playwright.press(page, "Title", "Escape")
+    assert :ok = Playwright.await_text(page, "Last key: x")
+
+    Playwright.check(page, "Done one")
+    # A chord still reaches the window from inside the input...
+    Playwright.press(page, "Title", "Control+d")
+    assert :ok = Playwright.await_text(page, "Last key: ctrl+d")
+    assert :ok = Playwright.await_text(page, "0 of 0 left")
+    # ...unless the input handles it: Ctrl+Z is its own undo.
+    Playwright.press(page, "Title", "Control+z")
+    assert :ok = Playwright.await_text(page, "Last key: ctrl+d")
+
+    Playwright.press(page, "Control+Shift+z")
+    assert :ok = Playwright.await_text(page, "Last key: ctrl+shift+z")
+  end
+
+  test "buttons draw their icons, every name known; title shows a tooltip", %{
+    page: page,
+    app: app
+  } do
+    Playwright.fill(page, "Title", "Iconic")
+    Playwright.press(page, "Title", "Enter")
+    assert :ok = Playwright.await_text(page, "1 of 1 left")
+    # The tooltip is painted, not in the accessibility tree: see the shot.
+    Playwright.hover(page, role: "button", name: "Delete Iconic")
+    Process.sleep(1000)
+    shots = Path.expand(".shots", __DIR__)
+    File.mkdir_p!(shots)
+    File.write!(Path.join(shots, "todo_icons.png"), Playwright.screenshot(page))
+    refute Playwright.log(app) =~ "unknown icon"
+  end
 end

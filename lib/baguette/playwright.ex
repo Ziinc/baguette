@@ -180,6 +180,23 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
     @spec press(page(), target(), String.t()) :: :ok
     def press(page, target, key), do: act(page, :press, target, "textbox", key: key)
 
+    @doc ~S"""
+    Presses `key` (`"Escape"`, `"Control+z"`, `"Control+Shift+z"`) on the
+    window, wherever focus is, as `phx-window-keydown` hears it.
+    `"ControlOrMeta+s"` is Cmd on macOS and Ctrl elsewhere.
+    """
+    @spec press(page(), String.t()) :: :ok
+    def press(page, key) do
+      %{} =
+        Connection.send(
+          page.opts[:connection],
+          %{guid: page.page, method: :keyboard_press, params: %{key: key}},
+          page.opts[:timeout]
+        )
+
+      :ok
+    end
+
     @doc "Types `text` key by key into `target` (a string names a textbox)."
     @spec type(page(), target(), String.t()) :: :ok
     def type(page, target, text), do: act(page, :type, target, "textbox", text: text)
