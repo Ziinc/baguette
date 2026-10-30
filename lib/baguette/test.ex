@@ -21,6 +21,7 @@ defmodule Baguette.Test do
   | `fill/3` | the input's `phx-change`, or its form's, with the form's values and `"_target"` |
   | `submit/2` | the form's `phx-submit` with every named value in it |
   | `pick_file/3` | the picker's `phx-pick-file` or `phx-pick-save` with its `phx-value-*` and `"path"` |
+  | `keydown/4` | every matching `phx-window-keydown` with its `phx-value-*`, `"key"`, `"ctrl"`, `"shift"`, `"alt"` and `"meta"` |
   """
 
   alias Baguette.Host
@@ -106,6 +107,68 @@ defmodule Baguette.Test do
       [] -> raise ArgumentError, "no file picker labelled #{inspect(label)} in window #{window}"
       _ -> raise ArgumentError, "more than one file picker labelled #{inspect(label)}"
     end
+  end
+
+  @doc """
+  Presses `key` with `mods` (any of `:ctrl`, `:shift`, `:alt`, `:meta`), as
+  the native host reports a keystroke to `phx-window-keydown`: each binding
+  whose `phx-key` (if any) matches `key`, ignoring case, gets its event with
+  its `phx-value-*` and `%{"key" => key, "ctrl" => ..., "shift" => ...,
+  "alt" => ..., "meta" => ...}`.
+
+  `key` is named as the event names it: `"z"` (letters stay lowercase with
+  Shift), `"="`, `"Enter"`, `"Escape"`, `"ArrowUp"`.
+
+  With `focus: label`, the text input labelled `label` has focus, as when the
+  user types in it: then only chords with `:ctrl` or `:meta` reach the
+  window, and not the ones the input handles itself (Ctrl or Meta with
+  A, C, V, X, Y or Z, without Shift: select all, copy, paste, cut, redo and
+  undo in its own text).
+  """
+  @spec keydown(Host.window(), String.t(), [:ctrl | :shift | :alt | :meta], keyword()) :: :ok
+  def keydown(window, key, mods \\ [], opts \\ []) do
+    bindings =
+      for {_, %{"a" => %{"phx-window-keydown" => event} = attrs} = el, _} <- entries(window),
+          do: {event, attrs["phx-key"], el}
+
+    if bindings == [],
+      do: raise(ArgumentError, "no phx-window-keydown in window #{window}")
+
+    flags = Map.new([:ctrl, :shift, :alt, :meta], &{Atom.to_string(&1), &1 in mods})
+    chord? = flags["ctrl"] or flags["meta"]
+
+    reaches? =
+      case opts[:focus] do
+        nil ->
+          true
+
+        label ->
+          input!(window, label)
+          chord? and not (String.downcase(key) in ~w(a c v x y z) and not flags["shift"])
+      end
+
+    if reaches? do
+      for {event, filter, el} <- bindings,
+          filter == nil or String.downcase(filter) == String.downcase(key) do
+        dispatch(window, "keydown", event, values(el) |> Map.merge(flags) |> Map.put("key", key))
+      end
+    end
+
+    sync(window)
+  end
+
+  @doc """
+  The names of the `<icon>`s in `window`, in order, or only those inside
+  the element labelled `label`.
+  """
+  @spec icons(Host.window(), String.t() | nil) :: [String.t()]
+  def icons(window, label \\ nil) do
+    all = entries(window)
+    roots = for {path, el, _} <- all, label == nil or labelled?(el, label), do: path
+
+    for {path, %{"t" => "icon", "a" => attrs}, _} <- all,
+        Enum.any?(roots, &(path == &1 or String.starts_with?(path, &1 <> "."))),
+        do: attrs["name"]
   end
 
   @doc """

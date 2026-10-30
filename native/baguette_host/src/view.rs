@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use gpui_kit::component::{
     checkbox::Checkbox,
     input::{Input, InputEvent, InputState},
+    tooltip::Tooltip,
 };
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
@@ -68,6 +69,7 @@ struct Renderer<'a, 'c> {
     forms: HashMap<String, FormInfo>,
     form: Option<String>,
     seen: HashSet<String>,
+    keydowns: Vec<WindowKey>,
 }
 
 impl Renderer<'_, '_> {
@@ -83,6 +85,7 @@ impl Renderer<'_, '_> {
             #[cfg(not(feature = "playwright"))]
             Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
             Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, self.theme),
+            Node::Element { tag, attrs, .. } if tag == "icon" => render_icon(attrs, self.theme),
             Node::Element { tag, attrs, .. }
                 if tag == "input" && attrs.get("type").map(String::as_str) == Some("checkbox") =>
             {
@@ -127,6 +130,13 @@ impl Renderer<'_, '_> {
         let window = self.window_id;
         let classes = attrs.get("class").map(String::as_str).unwrap_or("");
         let disabled = attrs.contains_key("disabled");
+        if let Some(event) = attrs.get("phx-window-keydown") {
+            self.keydowns.push(WindowKey {
+                event: event.clone(),
+                key: attrs.get("phx-key").cloned(),
+                values: values_of(attrs),
+            });
+        }
         let base = style::apply(
             gpui::div(),
             style::for_variant(classes, Variant::Base),
@@ -183,6 +193,10 @@ impl Renderer<'_, '_> {
                     "mixed" => Toggled::Mixed,
                     _ => Toggled::False,
                 })
+            })
+            // `title` is a tooltip on hover, as in a browser.
+            .when_some(attrs.get("title").cloned(), |el, title| {
+                el.tooltip(move |window, cx| Tooltip::new(title.clone()).build(window, cx))
             });
 
         let element = match attrs.get("phx-drag").filter(|_| !disabled) {
@@ -491,6 +505,66 @@ fn drag_handlers(
     )
 }
 
+/// A lucide icon from gpui-kit's catalog by its kebab-case name
+/// (`<icon name="undo-2" class="size-4 text-primary" />`), 16px square
+/// unless sized, in its `text-*` colour or else the inherited text colour.
+/// An unknown name draws nothing in the same space, and is logged once.
+fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
+    let name = attrs.get("name").map(String::as_str).unwrap_or("");
+    let path = icon_path(name);
+    if path.is_none() {
+        static REPORTED: std::sync::Mutex<Option<HashSet<String>>> = std::sync::Mutex::new(None);
+        let mut reported = REPORTED.lock().unwrap();
+        if reported.get_or_insert_default().insert(name.to_owned()) {
+            crate::log_line(&format!("baguette: unknown icon `{name}`"));
+        }
+    }
+    gpui::ViewElement::new(Icon {
+        path,
+        classes: attrs.get("class").cloned().unwrap_or_default(),
+        theme: theme.clone(),
+    })
+    .into_any_element()
+}
+
+/// The asset path of the icon called `name`, if gpui-kit bundles it.
+pub fn icon_path(name: &str) -> Option<SharedString> {
+    use gpui::AssetSource;
+    let valid = !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+    let path = format!("icons/{name}.svg");
+    (valid && matches!(gpui_kit::assets::AllAssets.load(&path), Ok(Some(_))))
+        .then(|| SharedString::from(path))
+}
+
+struct Icon {
+    path: Option<SharedString>,
+    classes: String,
+    theme: Theme,
+}
+
+impl gpui::RenderOnce for Icon {
+    fn render(self, window: &mut gpui::Window, _: &mut gpui::App) -> impl IntoElement {
+        // Like `currentColor`: the parent's text colour unless a class sets one.
+        let inherited = window.text_style().color;
+        let svg = gpui::svg()
+            .flex_shrink_0()
+            .size(gpui::px(16.))
+            .text_color(inherited);
+        let svg = style::apply(
+            svg,
+            style::for_variant(&self.classes, Variant::Base),
+            &self.theme,
+        );
+        match self.path {
+            Some(path) => svg.path(path),
+            None => svg,
+        }
+    }
+}
+
 /// A line from `x1`,`y1` to `x2`,`y2`, in pixels from the parent's top left;
 /// with `curve`, an S-curve that leaves and enters horizontally.
 /// `stroke-<color>` and `stroke-width` style it.
@@ -651,6 +725,46 @@ pub struct Root {
     inputs: HashMap<String, InputSlot>,
     checks: HashMap<String, CheckSlot>,
     forms: HashMap<String, FormInfo>,
+    keydowns: Vec<WindowKey>,
+}
+
+/// A `phx-window-keydown` binding: its event, its `phx-key` filter and its
+/// `phx-value-*`.
+struct WindowKey {
+    event: String,
+    key: Option<String>,
+    values: BTreeMap<String, String>,
+}
+
+/// GPUI's name for a key as the browser's `KeyboardEvent.key` names it
+/// (`"Enter"`, `"ArrowUp"`, `" "`); letters stay lowercase whatever Shift
+/// does. Lone modifiers have none.
+pub fn key_name(key: &str) -> Option<String> {
+    Some(
+        match key {
+            "shift" | "control" | "alt" | "platform" | "function" | "" => return None,
+            "enter" => "Enter",
+            "escape" => "Escape",
+            "backspace" => "Backspace",
+            "delete" => "Delete",
+            "tab" => "Tab",
+            "space" => " ",
+            "up" => "ArrowUp",
+            "down" => "ArrowDown",
+            "left" => "ArrowLeft",
+            "right" => "ArrowRight",
+            "home" => "Home",
+            "end" => "End",
+            "pageup" => "PageUp",
+            "pagedown" => "PageDown",
+            "insert" => "Insert",
+            key if key.len() > 1 && key.starts_with('f') && key[1..].parse::<u8>().is_ok() => {
+                return Some(key.to_uppercase());
+            }
+            key => key,
+        }
+        .to_owned(),
+    )
 }
 
 impl Root {
@@ -671,6 +785,45 @@ impl Root {
             inputs: HashMap::new(),
             checks: HashMap::new(),
             forms: HashMap::new(),
+            keydowns: Vec::new(),
+        }
+    }
+
+    /// Sends each `phx-window-keydown` binding the keystroke matches. A
+    /// keystroke something already handled (a text input's own Ctrl+Z, Enter
+    /// in a form) sends nothing, and while a text input has focus only
+    /// chords with Ctrl or Meta do, so typing never fires shortcuts.
+    pub fn on_keystroke(&self, event: &gpui::KeystrokeEvent) {
+        if event.action.is_some() {
+            return;
+        }
+        let Some(key) = key_name(&event.keystroke.key) else {
+            return;
+        };
+        let mods = &event.keystroke.modifiers;
+        let typing = event.context_stack.iter().any(|c| c.contains("Input"));
+        if typing && !(mods.control || mods.platform) {
+            return;
+        }
+        for binding in &self.keydowns {
+            if binding
+                .key
+                .as_ref()
+                .is_some_and(|k| !k.eq_ignore_ascii_case(&key))
+            {
+                continue;
+            }
+            let mut values: Map<String, Value> = binding
+                .values
+                .iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect();
+            values.insert("key".into(), Value::String(key.clone()));
+            values.insert("ctrl".into(), Value::Bool(mods.control));
+            values.insert("shift".into(), Value::Bool(mods.shift));
+            values.insert("alt".into(), Value::Bool(mods.alt));
+            values.insert("meta".into(), Value::Bool(mods.platform));
+            self.emit("keydown", &binding.event, values);
         }
     }
 
@@ -856,11 +1009,13 @@ impl gpui::Render for Root {
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
+                keydowns: Vec::new(),
             };
             let content = frame
                 .root
                 .as_ref()
                 .map(|node| renderer.render(node, "root"));
+            self.keydowns = renderer.keydowns;
             (content, renderer.forms, renderer.seen)
         };
         // Inputs no longer rendered drop their state.
@@ -871,5 +1026,30 @@ impl gpui::Render for Root {
         self.forms = forms;
         self.frame = frame;
         gpui::div().size_full().children(content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keys_take_the_browsers_names() {
+        assert_eq!(key_name("z").as_deref(), Some("z"));
+        assert_eq!(key_name("enter").as_deref(), Some("Enter"));
+        assert_eq!(key_name("up").as_deref(), Some("ArrowUp"));
+        assert_eq!(key_name("space").as_deref(), Some(" "));
+        assert_eq!(key_name("f5").as_deref(), Some("F5"));
+        assert_eq!(key_name("="), Some("=".into()));
+        assert_eq!(key_name("shift"), None);
+    }
+
+    #[test]
+    fn icons_resolve_by_kebab_case_name() {
+        assert_eq!(icon_path("undo-2").as_deref(), Some("icons/undo-2.svg"));
+        assert!(icon_path("zoom-in").is_some());
+        assert!(icon_path("no-such-icon").is_none());
+        assert!(icon_path("../Cargo").is_none());
+        assert!(icon_path("").is_none());
     }
 }
