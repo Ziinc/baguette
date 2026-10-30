@@ -8,6 +8,7 @@
 mod beam;
 mod bridge;
 pub mod components;
+mod list;
 mod pick;
 #[cfg(feature = "playwright")]
 mod playwright;
@@ -16,7 +17,7 @@ mod view;
 
 use tauri_plugin_gpui::{GpuiWindowExt, gpui::AppContext};
 
-use crate::view::{Frame, Node, Root};
+use crate::view::{Frame, Message, Node, Root};
 
 fn notice(text: String) -> Frame {
     Frame {
@@ -112,11 +113,18 @@ pub fn run() {
                         if std::mem::take(&mut first) {
                             log_line("baguette: first frame from Elixir");
                         }
-                        let frame = match serde_json::from_slice::<Frame>(&msg.json) {
-                            Ok(frame) => frame,
-                            Err(error) => notice(format!("Invalid render from Elixir: {error}")),
-                        };
-                        handle.update(cx, |root, cx| root.show(frame, cx));
+                        match serde_json::from_slice::<Message>(&msg.json) {
+                            Ok(Message::Frame(frame)) => {
+                                handle.update(cx, |root, cx| root.show(frame, cx))
+                            }
+                            Ok(Message::Rows { rows }) => {
+                                handle.update(cx, |root, cx| root.rows(rows, cx))
+                            }
+                            Err(error) => {
+                                let frame = notice(format!("Invalid render from Elixir: {error}"));
+                                handle.update(cx, |root, cx| root.show(frame, cx))
+                            }
+                        }
                     }
                 })
                 .detach();
