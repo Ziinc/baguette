@@ -57,10 +57,18 @@ pub fn run() {
                 .map_err(|e| e.to_string())
                 .and_then(|dir| beam::android::unpack(&dir))
                 .and_then(|root| beam::Release::locate_at(root));
-            #[cfg(not(feature = "playwright"))]
-            tauri_plugin_gpui::init(app)?;
-            #[cfg(feature = "playwright")]
-            tauri_plugin_gpui::init_with(app, playwright::config())?;
+            tauri_plugin_gpui::init_with(
+                app,
+                tauri_plugin_gpui::GpuiConfig::new()
+                    // gpui-kit's icons (a checkbox's tick, an input's clear button).
+                    .assets(gpui_kit::assets::Assets)
+                    .on_launch(|cx| {
+                        // gpui-kit's components: text inputs and checkboxes.
+                        gpui_kit::init(cx);
+                        #[cfg(feature = "playwright")]
+                        playwright::start(cx);
+                    }),
+            )?;
             let (title, (width, height)) = match &release {
                 Ok(r) => (
                     r.window.title.clone().unwrap_or(r.name.clone()),
@@ -78,7 +86,7 @@ pub fn run() {
                 Err(error) => notice(format!("No Elixir release to run: {error}")),
             };
             let build = move |cx: &mut tauri_plugin_gpui::gpui::App| {
-                let root = cx.new(|_| Root { window: 0, frame });
+                let root = cx.new(|_| Root::new(0, frame));
                 let handle = root.clone();
                 cx.spawn(async move |cx| {
                     let mut first = true;
@@ -103,11 +111,8 @@ pub fn run() {
                 .detach();
                 root
             };
-            #[cfg(not(feature = "playwright"))]
-            window.attach_gpui(build)?;
-            // gpui-kit's Root observes what each frame paints, which is what
-            // Playwright's locators read.
-            #[cfg(feature = "playwright")]
+            // gpui-kit's Root hosts its components (focus, theme, popovers)
+            // and, for Playwright, observes what each frame paints.
             window.attach_gpui_view(Default::default(), move |window, cx| {
                 let root = build(cx);
                 cx.new(|cx| gpui_kit::base::Root::new(root, window, cx))
