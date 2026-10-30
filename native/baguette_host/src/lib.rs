@@ -7,6 +7,7 @@
 
 mod beam;
 mod bridge;
+mod pick;
 #[cfg(feature = "playwright")]
 mod playwright;
 mod style;
@@ -44,7 +45,9 @@ pub fn run() {
     let (host, renders) = bridge::install();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .setup(move |app| {
+            pick::install(app.handle().clone());
             use tauri::Manager;
             #[cfg(not(target_os = "android"))]
             let release = beam::Release::locate(app.path().resource_dir().ok());

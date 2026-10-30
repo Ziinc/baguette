@@ -196,6 +196,14 @@ impl Renderer<'_, '_> {
         let on_click: Option<Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>> =
             match (click_handler(window, attrs), self.submits(tag, attrs)) {
                 (Some(click), _) => Some(Box::new(click)),
+                (None, _) if crate::pick::Pick::from_attrs(window, attrs).is_some() => {
+                    let attrs = attrs.clone();
+                    Some(Box::new(move |_, _, _| {
+                        if let Some(pick) = crate::pick::Pick::from_attrs(window, &attrs) {
+                            pick.open();
+                        }
+                    }))
+                }
                 (None, Some(form)) => {
                     let root = self.cx.entity().downgrade();
                     Some(Box::new(move |_, _, cx| {
@@ -522,7 +530,7 @@ fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
     .into_any_element()
 }
 
-fn values_of(attrs: &BTreeMap<String, String>) -> BTreeMap<String, String> {
+pub fn values_of(attrs: &BTreeMap<String, String>) -> BTreeMap<String, String> {
     attrs
         .iter()
         .filter_map(|(key, value)| {

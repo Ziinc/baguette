@@ -2,7 +2,7 @@ defmodule Board.View do
   @moduledoc "A card to drag around, tied to a fixed point by a line."
   use Baguette.View
 
-  def mount(_args), do: {:ok, %{x: 40, y: 40, lifts: 0}}
+  def mount(_args), do: {:ok, %{x: 40, y: 40, lifts: 0, file: nil}}
 
   def render(assigns) do
     ~H"""
@@ -14,6 +14,11 @@ defmodule Board.View do
         <div class="flex-col">
           <text :for={i <- 1..30} aria-label={"Item #{i}"}>Item {i}</text>
         </div>
+      </div>
+      <div class="absolute left-[300px] top-[200px] flex-col gap-1">
+        <button phx-pick-file="picked" accept="csv,xlsx" phx-value-key="source"
+          class="px-2 py-1 bg-[#e2e8f0]" aria-label="Choose file">Choose file</button>
+        <text :if={@file}>Chose {@file}</text>
       </div>
       <div class="absolute left-[200px] top-[260px] w-[300px]">
         <div class="w-full max-w-[150px] p-2 bg-[#e2e8f0]" aria-label="Note"><text>Capped</text></div>
@@ -29,6 +34,9 @@ defmodule Board.View do
     </div>
     """
   end
+
+  def handle_event("picked", %{"path" => path, "key" => "source"}, assigns),
+    do: {:noreply, %{assigns | file: path}}
 
   def handle_event("lift", _values, assigns), do: {:noreply, %{assigns | lifts: assigns.lifts + 1}}
 

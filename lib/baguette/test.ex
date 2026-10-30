@@ -20,6 +20,7 @@ defmodule Baguette.Test do
   | `drag/4` | the element's `phx-drag` with `"dx"` and `"dy"` |
   | `fill/3` | the input's `phx-change`, or its form's, with the form's values and `"_target"` |
   | `submit/2` | the form's `phx-submit` with every named value in it |
+  | `pick_file/3` | the picker's `phx-pick-file` or `phx-pick-save` with its `phx-value-*` and `"path"` |
   """
 
   alias Baguette.Host
@@ -85,6 +86,25 @@ defmodule Baguette.Test do
 
       _ ->
         raise ArgumentError, "more than one draggable element labelled #{inspect(label)}"
+    end
+  end
+
+  @doc """
+  Chooses `path` in the file picker labelled `label` (a `phx-pick-file` or
+  `phx-pick-save` element), as picking a file in the native dialog does.
+  """
+  @spec pick_file(Host.window(), String.t(), String.t()) :: :ok
+  def pick_file(window, label, path) do
+    pickers =
+      for {_, %{"a" => attrs} = el, _} <- entries(window),
+          labelled?(el, label),
+          event = attrs["phx-pick-file"] || attrs["phx-pick-save"],
+          do: {event, el}
+
+    case pickers do
+      [{event, el}] -> dispatch(window, "pick", event, Map.put(values(el), "path", path))
+      [] -> raise ArgumentError, "no file picker labelled #{inspect(label)} in window #{window}"
+      _ -> raise ArgumentError, "more than one file picker labelled #{inspect(label)}"
     end
   end
 
