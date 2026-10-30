@@ -15,6 +15,7 @@ pub struct RenderMsg {
 
 struct Bridge {
     renders: async_channel::Sender<RenderMsg>,
+    calls: async_channel::Sender<Vec<u8>>,
     sink: Mutex<Option<EventSink>>,
     /// Set when Elixir's component sets don't match: renders are ignored.
     refused: AtomicBool,
@@ -22,12 +23,20 @@ struct Bridge {
 
 static BRIDGE: OnceLock<Bridge> = OnceLock::new();
 
-/// Creates the bridge and returns the [`HostApi`] to hand to the BEAM, and the
-/// receiver renders arrive on.
-pub fn install() -> (&'static HostApi, async_channel::Receiver<RenderMsg>) {
+/// What arrives from Elixir: renders, and platform calls (JSON).
+pub struct Inbox {
+    pub renders: async_channel::Receiver<RenderMsg>,
+    pub calls: async_channel::Receiver<Vec<u8>>,
+}
+
+/// Creates the bridge and returns the [`HostApi`] to hand to the BEAM, and
+/// the receivers renders and calls arrive on.
+pub fn install() -> (&'static HostApi, Inbox) {
     let (tx, rx) = async_channel::unbounded();
+    let (calls_tx, calls_rx) = async_channel::unbounded();
     let bridge = Bridge {
         renders: tx,
+        calls: calls_tx,
         sink: Mutex::new(None),
         refused: AtomicBool::new(false),
     };
@@ -38,8 +47,21 @@ pub fn install() -> (&'static HostApi, async_channel::Receiver<RenderMsg>) {
         render,
         set_event_sink,
         check_components,
+        call,
     }));
-    (api, rx)
+    let inbox = Inbox {
+        renders: rx,
+        calls: calls_rx,
+    };
+    (api, inbox)
+}
+
+extern "C" fn call(_ctx: *mut c_void, json: *const u8, len: usize) {
+    // SAFETY: the NIF passes a buffer valid for `len` bytes for this call.
+    let json = unsafe { std::slice::from_raw_parts(json, len) }.to_vec();
+    if let Some(bridge) = BRIDGE.get() {
+        let _ = bridge.calls.try_send(json);
+    }
 }
 
 extern "C" fn render(_ctx: *mut c_void, window: u32, json: *const u8, len: usize) {

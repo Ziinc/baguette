@@ -860,6 +860,8 @@ pub struct Root {
     /// Key bindings already given to GPUI, which has no way to remove one.
     bound: HashSet<crate::keymap::Binding>,
     body: Option<gpui::FocusHandle>,
+    /// Subscriptions that live as long as the window.
+    kept: Vec<Subscription>,
     forms: HashMap<String, FormInfo>,
     keydowns: Vec<WindowKey>,
 }
@@ -914,6 +916,10 @@ impl Root {
         self.bind(&frame.keymap, cx);
         self.frame = frame;
         cx.notify();
+    }
+
+    pub fn keep(&mut self, subscription: Subscription) {
+        self.kept.push(subscription);
     }
 
     fn bind(&mut self, keymap: &[crate::keymap::Binding], cx: &mut gpui::App) {
@@ -1028,21 +1034,10 @@ impl Root {
             focus: HashMap::new(),
             bound: HashSet::new(),
             body: None,
+            kept: Vec::new(),
             forms: HashMap::new(),
             keydowns: Vec::new(),
         }
-    }
-
-    /// Sends every view action GPUI dispatches (`keymap.rs`) to Elixir,
-    /// whether or not focus is in the window's tree.
-    pub fn install_actions(window: u32, cx: &mut gpui::App) {
-        cx.on_action(move |action: &crate::keymap::ElixirAction, _| {
-            bridge::emit(&json!({
-                "type": "action",
-                "window": window,
-                "action": action.name.as_ref(),
-            }));
-        });
     }
 
     /// Sends each `phx-window-keydown` binding the keystroke matches. A
@@ -1301,10 +1296,21 @@ impl gpui::Render for Root {
         if window.focused(cx).is_none() {
             window.focus(&body, cx);
         }
-        observed!(
-            gpui::div().id("body").size_full().children(content),
-            Some(body)
-        )
+        // The view's actions (`keymap.rs`): the body is on every dispatch
+        // path, since it holds focus when nothing inside it does.
+        let window_id = self.window;
+        let body_div = gpui::div()
+            .id("body")
+            .size_full()
+            .on_action(move |action: &crate::keymap::ElixirAction, _, _| {
+                bridge::emit(&json!({
+                    "type": "action",
+                    "window": window_id,
+                    "action": action.name.as_ref(),
+                }));
+            })
+            .children(content);
+        observed!(body_div, Some(body))
     }
 }
 

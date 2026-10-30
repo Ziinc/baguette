@@ -7,6 +7,9 @@ defmodule Baguette.Native do
   @spec attach(non_neg_integer(), binary()) :: :ok | {:error, atom()}
   def attach(_host_address, _components_json), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec call(binary()) :: :ok
+  def call(_json), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec render(non_neg_integer(), binary()) :: :ok
   def render(_window, _json), do: :erlang.nif_error(:nif_not_loaded)
 end

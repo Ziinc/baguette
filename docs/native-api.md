@@ -140,6 +140,19 @@ tests both read it, so the two sides can't drift apart.
   nothing in it does, as a browser's body does, so Tab and context-free
   bindings work before anything is clicked. `Baguette.Test.keystroke/3` and
   `focus_order/1` drive it headlessly.
+- **Platform calls** (step 6). `Baguette.Clipboard` (`read/0`, `write/1`),
+  `Baguette.Window` (`open/2`, `close/1`, `set_title/2`, `set_bounds/2`,
+  `info/1`), `Baguette.Menu.set/1` and `Baguette.App` (`open_url/1`,
+  `appearance/0`) go through `Baguette.Host.call/2`. ABI 3 adds `call`.
+  The host runs each call on its UI thread (`platform.rs`) and replies with
+  a `reply` event carrying the call's ref. GPUI does the clipboard and the
+  appearance. Tauri, the platform under GPUI here, does windows, menus and
+  URLs: tauri-gpui's platform leaves `set_menus`, `open_url` and the path
+  prompts to Tauri plugins. `windows.rs` keeps each window's root, and
+  queues renders for windows that aren't open yet. A menu click is an event
+  to window 0's view. An appearance change is
+  `handle_info({:appearance, :dark}, assigns)`. Without a native host, the
+  calls change a headless platform that `Baguette.Host.platform/0` reads.
 
 ## Next, in order
 

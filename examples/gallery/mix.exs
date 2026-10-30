@@ -12,7 +12,7 @@ defmodule Gallery.MixProject do
           steps: [:assemble, &Baguette.Release.package/1],
           baguette: [
             components: ["gpui-kit"],
-            window: [title: "Gallery", width: 640, height: 480]
+            window: [title: "Gallery", width: 640, height: 860]
           ]
         ]
       ]

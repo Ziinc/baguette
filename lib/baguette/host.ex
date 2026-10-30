@@ -21,6 +21,22 @@ defmodule Baguette.Host do
 
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
+  @doc """
+  Calls the platform: `name` (`"clipboard.read"`, `"window.set_title"`, ...)
+  with `args`, as `Baguette.Clipboard`, `Baguette.Window`, `Baguette.Menu`
+  and `Baguette.App` do. Without a native host the call changes the
+  headless platform instead (`platform/0`).
+  """
+  @spec call(String.t(), map()) :: term()
+  def call(name, args), do: GenServer.call(__MODULE__, {:call, name, args}, 10_000)
+
+  @doc "The headless platform's state: clipboard, windows, menus, opened URLs."
+  @spec platform() :: map()
+  def platform, do: GenServer.call(__MODULE__, :platform)
+
+  @doc false
+  def reset_platform, do: GenServer.call(__MODULE__, :reset_platform)
+
   @doc "Whether a native host is attached."
   @spec native?() :: boolean()
   def native?, do: GenServer.call(__MODULE__, :native?)
@@ -78,7 +94,17 @@ defmodule Baguette.Host do
           false
       end
 
-    {:ok, %{native: native, owners: %{}, frames: %{}, rows: %{}, typed: %{}}}
+    {:ok,
+     %{
+       native: native,
+       owners: %{},
+       frames: %{},
+       rows: %{},
+       typed: %{},
+       calls: %{},
+       next_call: 0,
+       platform: Baguette.Host.Headless.new()
+     }}
   end
 
   # The host refuses component sets compiled from other manifests than its
@@ -111,6 +137,24 @@ defmodule Baguette.Host do
 
   @impl true
   def handle_call(:native?, _from, state), do: {:reply, state.native, state}
+
+  # The host replies with a `reply` event carrying the call's ref.
+  def handle_call({:call, name, args}, from, %{native: true} = state) do
+    ref = state.next_call
+    message = %{"call" => name, "ref" => ref, "args" => args}
+    Baguette.Native.call(IO.iodata_to_binary(:json.encode(message)))
+    {:noreply, %{state | calls: Map.put(state.calls, ref, from), next_call: ref + 1}}
+  end
+
+  def handle_call({:call, name, args}, _from, state) do
+    {reply, platform} = Baguette.Host.Headless.call(name, args, state.platform)
+    {:reply, reply, %{state | platform: platform}}
+  end
+
+  def handle_call(:platform, _from, state), do: {:reply, state.platform, state}
+
+  def handle_call(:reset_platform, _from, state),
+    do: {:reply, :ok, %{state | platform: Baguette.Host.Headless.new()}}
 
   def handle_call({:last_frame, window}, _from, state),
     do: {:reply, Map.get(state.frames, window), state}
@@ -163,12 +207,24 @@ defmodule Baguette.Host do
       # The host couldn't apply a patch: it gets the whole frame.
       %{"type" => "resync", "window" => window} ->
         if frame = state.frames[window], do: send_native(window, frame)
+        {:noreply, state}
+
+      %{"type" => "reply", "ref" => ref} = reply ->
+        {from, calls} = Map.pop(state.calls, ref)
+
+        if from do
+          GenServer.reply(from, reply["result"])
+
+          if error = reply["error"],
+            do: Logger.warning("baguette: platform call failed: #{error}")
+        end
+
+        {:noreply, %{state | calls: calls}}
 
       event ->
         route(event, state)
+        {:noreply, state}
     end
-
-    {:noreply, state}
   end
 
   def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do

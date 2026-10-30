@@ -73,6 +73,16 @@ fn attach(env: Env, address: u64, components: Binary) -> NifResult<rustler::Atom
     Ok(atoms::ok())
 }
 
+/// Sends the host a platform call; its reply arrives as an event.
+#[rustler::nif]
+fn call(json: Binary) -> NifResult<rustler::Atom> {
+    let Some(attached) = ATTACHED.get() else {
+        return Err(rustler::Error::Term(Box::new(atoms::not_attached())));
+    };
+    (attached.host.call)(attached.host.ctx, json.as_ptr(), json.len());
+    Ok(atoms::ok())
+}
+
 /// Replaces window `window`'s view with the JSON tree in `json`.
 #[rustler::nif]
 fn render(window: u32, json: Binary) -> NifResult<rustler::Atom> {
