@@ -10,7 +10,12 @@
 use std::collections::BTreeMap;
 
 use serde_json::{Value, json};
-use tauri_plugin_gpui::gpui::{self, AnyElement};
+use tauri_plugin_gpui::gpui::{self, AnyElement, Styled};
+
+use crate::style::{self, Theme, Variant};
+
+#[cfg(feature = "components-gpui-kit")]
+mod gpui_kit;
 
 /// Bumped whenever the manifest's shape changes.
 pub const MANIFEST_VERSION: u32 = 1;
@@ -40,6 +45,7 @@ pub struct Props<'a> {
     pub window: u32,
     pub path: &'a str,
     pub attrs: &'a BTreeMap<String, String>,
+    pub theme: &'a Theme,
     pub children: Vec<AnyElement>,
 }
 
@@ -55,6 +61,16 @@ impl Props<'_> {
 
     pub fn number(&self, name: &str) -> Option<f32> {
         self.get(name)?.parse().ok()
+    }
+
+    /// `element` with the component's `class` applied, as on a `<div>`.
+    pub fn styled<S: Styled>(&self, element: S) -> S {
+        let classes = self.get("class").unwrap_or("");
+        style::apply(
+            element,
+            style::for_variant(classes, Variant::Base),
+            self.theme,
+        )
     }
 
     /// Sends the element's `phx-click` (with its `phx-value-*`) when clicked.
@@ -83,9 +99,19 @@ pub struct Set {
     pub components: &'static [Component],
 }
 
-/// The sets compiled into this host.
+/// The sets compiled into this host, each behind its Cargo feature
+/// (`components-<name>`).
 pub fn sets() -> &'static [Set] {
-    &[]
+    &[
+        #[cfg(feature = "components-gpui-kit")]
+        gpui_kit::SET,
+    ]
+}
+
+/// The manifest of the compiled-in set called `name`, if there is one.
+pub fn manifest_of(name: &str) -> Option<Value> {
+    let set = sets().iter().find(|set| set.name == name)?;
+    Some(manifest(std::slice::from_ref(set)))
 }
 
 /// The registered component for `tag`, if any.
@@ -194,6 +220,11 @@ mod tests {
     }];
 
     #[test]
+    fn manifests_only_compiled_in_sets() {
+        assert!(manifest_of("no-such-set").is_none());
+    }
+
+    #[test]
     fn finds_components_by_tag() {
         assert_eq!(find_in(KIT, "kit-badge").map(|c| c.tag), Some("kit-badge"));
         assert!(find_in(KIT, "div").is_none());
@@ -219,10 +250,12 @@ mod tests {
         .into_iter()
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .collect();
+        let theme = Theme::default();
         let props = Props {
             window: 0,
             path: "0",
             attrs: &attrs,
+            theme: &theme,
             children: vec![],
         };
         assert!(props.flag("pill"));

@@ -14,6 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [features]
+default = ["components-gpui-kit"]
+# Native component sets (`components.rs`), one feature each. A release
+# chooses them with `baguette: [components: [...]]`.
+components-gpui-kit = []
 # Serves the app's windows to Playwright clients (gpui-playwright) when
 # GPUI_PLAYWRIGHT is set. Test builds only: release builds leave it out.
 playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/painted-text"]

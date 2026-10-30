@@ -15,4 +15,14 @@ defmodule Baguette.ReleaseTest do
     System.put_env("BAGUETTE_HOST_FEATURES", "playwright, b,a")
     assert Release.host_features(%{baguette: [host_features: ["a"]]}) == ["a", "playwright", "b"]
   end
+
+  test "cargo_features/1 turns the components option into set features" do
+    assert Release.cargo_features(%{}) == []
+
+    assert Release.cargo_features(%{baguette: [components: ["gpui-kit"]]}) ==
+             ["--no-default-features", "--features", "components-gpui-kit"]
+
+    assert Release.cargo_features(%{baguette: [components: [], host_features: ["x"]]}) ==
+             ["--no-default-features", "--features", "x"]
+  end
 end
