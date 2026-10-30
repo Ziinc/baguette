@@ -82,15 +82,25 @@ end
 `test/fixtures/components.json` is the manifest format. The Rust and Elixir
 tests both read it, so the two sides can't drift apart.
 
-## Scaffolding in place
+## In place
 
 - `components.rs`: `Component`, `Attr`, `AttrType`, `Props`, `Set`,
-  `sets()` (empty), `find/1` and `manifest/1`, with unit tests.
+  `sets()`, `find/1`, `manifest/1` and `manifest_of/1`, with unit tests.
 - The renderer dispatches registered tags.
-- `baguette_host --manifest`.
+- `baguette_host --manifest [set]`.
 - `Baguette.Components`: one function component per manifest entry, with
   `attr` and `slot` declarations, `@doc`, a `__manifest__/0` function, and
   recompilation when the manifest changes.
+- **Component sets** (step 1). Each set is a `components-<set>` Cargo
+  feature of `baguette_host`. gpui-kit's (`components/gpui_kit.rs`, on by
+  default) has `kit-tag`, `kit-progress`, `kit-spinner`, `kit-skeleton` and
+  `kit-kbd`; Elixir imports them from `Baguette.Kit`.
+  - A release chooses its sets with `baguette: [components: ["gpui-kit"]]`;
+    `[]` leaves them all out.
+  - `mix baguette.components` writes each set's manifest into
+    `priv/components/<set>.json`. A Rust test fails when the committed
+    manifest no longer matches the set.
+  - `examples/gallery` shows them, and its end-to-end test draws them.
 
 ## Next, in order
 

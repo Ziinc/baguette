@@ -288,6 +288,7 @@ impl Renderer<'_, '_> {
             window: self.window_id,
             path,
             attrs,
+            theme: self.theme,
             children,
         };
         (component.render)(props, self.window, self.cx)

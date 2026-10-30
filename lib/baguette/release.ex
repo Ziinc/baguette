@@ -17,6 +17,10 @@ defmodule Baguette.Release do
   `BAGUETTE_HOST_FEATURES` (comma separated) adds more for one build, such as
   `playwright` for the end-to-end tests.
 
+  `components: ["gpui-kit"]` chooses the native component sets compiled into
+  the host (see `Baguette.Components`). Without it the host has its default
+  sets, which is gpui-kit's; `components: []` leaves them all out.
+
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
   The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
@@ -46,6 +50,28 @@ defmodule Baguette.Release do
     )
   end
 
+  @doc """
+  The Cargo arguments that choose the host's features: one
+  `components-<set>` per component set, then `host_features/1`.
+  """
+  @spec cargo_features(keyword() | map()) :: [String.t()]
+  def cargo_features(options) do
+    sets = get_in(options, [:baguette, :components])
+    features = Enum.map(sets || [], &"components-#{&1}") ++ host_features(options)
+
+    if(sets, do: ["--no-default-features"], else: []) ++
+      Enum.flat_map(features, &["--features", &1])
+  end
+
+  # The same choice through the Tauri CLI, which passes what follows `--`
+  # on to Cargo.
+  defp tauri_features(options) do
+    case cargo_features(options) do
+      ["--no-default-features" | features] -> features ++ ["--", "--no-default-features"]
+      features -> features
+    end
+  end
+
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
@@ -54,7 +80,7 @@ defmodule Baguette.Release do
   defp package_desktop(release) do
     liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
-    features = host_features(release.options)
+    features = cargo_features(release.options)
     target_dir = target_dir(native, features)
 
     Mix.shell().info([:green, "* building ", :reset, "baguette_host"])
@@ -62,8 +88,7 @@ defmodule Baguette.Release do
     {_, 0} =
       System.cmd(
         "cargo",
-        ["build", "--release", "-p", "baguette_host", "--target-dir", target_dir] ++
-          Enum.flat_map(features, &["--features", &1]),
+        ["build", "--release", "-p", "baguette_host", "--target-dir", target_dir] ++ features,
         cd: native,
         env: [{"BAGUETTE_LIBERLANG", liberlang}],
         into: IO.stream()
@@ -114,8 +139,7 @@ defmodule Baguette.Release do
 
   defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
-    features = host_features(release.options)
-    target_dir = target_dir(native, features)
+    target_dir = target_dir(native, cargo_features(release.options))
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
 
@@ -140,7 +164,7 @@ defmodule Baguette.Release do
       System.cmd(
         "npx",
         ["--yes", "@tauri-apps/cli@2", "build", "--config", config_path, "--bundles"] ++
-          bundles ++ Enum.flat_map(features, &["--features", &1]),
+          bundles ++ tauri_features(release.options),
         cd: Path.join(native, "baguette_host"),
         env: [
           {"BAGUETTE_LIBERLANG", desktop_liberlang!()},
@@ -290,15 +314,13 @@ defmodule Baguette.Release do
       |> AndroidNifs.build!(jni, &run!/4)
     end
 
-    features = host_features(release.options)
-
     run!(
       host,
       "npm",
       ["run", "tauri", "--", "android", "build", "--ci", "--config", config] ++
         if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
         Enum.flat_map(abis, &["--target", &1.tauri]) ++
-        Enum.flat_map(features, &["--features", &1]),
+        tauri_features(release.options),
       env
     )
 
@@ -498,9 +520,16 @@ defmodule Baguette.Release do
     end
   end
 
-  defp target_dir(native, features) do
+  defp target_dir(native, cargo_args) do
     # One target directory per feature set, so demos don't rebuild each other.
-    Path.join([native, "target" | Enum.map(features, &"features-#{&1}")])
+    dirs =
+      Enum.flat_map(cargo_args, fn
+        "--features" -> []
+        "--no-default-features" -> ["no-default-features"]
+        feature -> ["features-#{feature}"]
+      end)
+
+    Path.join([native, "target" | dirs])
   end
 
   defp baguette_root do
