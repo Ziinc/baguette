@@ -9,7 +9,10 @@ fn main() {
                 eprintln!("no component set `{set}` in this host");
                 std::process::exit(1)
             }),
-            None => components::manifest(components::sets()),
+            None => components::sets()
+                .iter()
+                .map(|set| components::manifest(set, components::Versions::BUILT))
+                .collect(),
         };
         println!("{manifest:#}");
         return;

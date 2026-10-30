@@ -13,6 +13,18 @@ defmodule Baguette.ComponentsTest do
     assert function_exported?(Kit, :progress_bar, 1)
   end
 
+  test "names its set and the manifest's hash" do
+    assert Kit.__set__() ==
+             {"kit",
+              "#{File.read!("test/fixtures/components.json") |> JSON.decode!() |> Map.fetch!("hash")}"}
+  end
+
+  test "compiled/0 lists every set compiled in, for the host to check" do
+    compiled = Baguette.Components.compiled()
+    assert compiled["kit"] == elem(Kit.__set__(), 1)
+    assert compiled["gpui-kit"] == elem(Baguette.Kit.__set__(), 1)
+  end
+
   test "renders the native tag with its attributes, events and children" do
     assigns = %{}
 

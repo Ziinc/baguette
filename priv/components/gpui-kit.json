@@ -1,5 +1,8 @@
 {
-  "version": 1,
+  "version": 2,
+  "set": "gpui-kit",
+  "gpui": "0.3.9",
+  "gpui_kit": "0.7.3",
   "components": [
     {
       "tag": "kit-tag",
@@ -145,5 +148,6 @@
       ],
       "events": []
     }
-  ]
+  ],
+  "hash": "c76030cc63297c74"
 }

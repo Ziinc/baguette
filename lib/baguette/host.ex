@@ -56,7 +56,7 @@ defmodule Baguette.Host do
     native =
       case :init.get_argument(:baguette_host) do
         {:ok, [[address]]} ->
-          :ok = Baguette.Native.attach(List.to_integer(address))
+          attach!(List.to_integer(address))
           true
 
         _ ->
@@ -64,6 +64,21 @@ defmodule Baguette.Host do
       end
 
     {:ok, %{native: native, owners: %{}, frames: %{}, typed: %{}}}
+  end
+
+  # The host refuses component sets compiled from other manifests than its
+  # own, and says so in the window.
+  defp attach!(address) do
+    components = JSON.encode!(Baguette.Components.compiled())
+
+    case Baguette.Native.attach(address, components) do
+      :ok ->
+        :ok
+
+      {:error, :components_mismatch} ->
+        raise "the native host's component sets differ from the manifests " <>
+                "this release was compiled against; rebuild the release"
+    end
   end
 
   @impl true

@@ -18,7 +18,7 @@ use crate::style::{self, Theme, Variant};
 mod gpui_kit;
 
 /// Bumped whenever the manifest's shape changes.
-pub const MANIFEST_VERSION: u32 = 1;
+pub const MANIFEST_VERSION: u32 = 2;
 
 /// What an attribute holds. Values arrive from Elixir as strings.
 #[derive(Clone, Copy, Debug)]
@@ -111,7 +111,7 @@ pub fn sets() -> &'static [Set] {
 /// The manifest of the compiled-in set called `name`, if there is one.
 pub fn manifest_of(name: &str) -> Option<Value> {
     let set = sets().iter().find(|set| set.name == name)?;
-    Some(manifest(std::slice::from_ref(set)))
+    Some(manifest(set, Versions::BUILT))
 }
 
 /// The registered component for `tag`, if any.
@@ -125,11 +125,26 @@ fn find_in<'s>(sets: &'s [Set], tag: &str) -> Option<&'s Component> {
         .find(|component| component.tag == tag)
 }
 
-/// Every component in `sets`, as `Baguette.Components` reads it.
-pub fn manifest(sets: &[Set]) -> Value {
-    let components: Vec<Value> = sets
+/// The GPUI and gpui-kit versions a host was built with (from Cargo.lock).
+#[derive(Clone, Copy)]
+pub struct Versions {
+    pub gpui: &'static str,
+    pub gpui_kit: &'static str,
+}
+
+impl Versions {
+    pub const BUILT: Versions = Versions {
+        gpui: env!("BAGUETTE_GPUI_VERSION"),
+        gpui_kit: env!("BAGUETTE_GPUI_KIT_VERSION"),
+    };
+}
+
+/// `set` as `Baguette.Components` reads it, with the versions it was built
+/// against and a hash of all of that.
+pub fn manifest(set: &Set, versions: Versions) -> Value {
+    let components: Vec<Value> = set
+        .components
         .iter()
-        .flat_map(|set| set.components)
         .map(|component| {
             json!({
                 "tag": component.tag,
@@ -140,7 +155,64 @@ pub fn manifest(sets: &[Set]) -> Value {
             })
         })
         .collect();
-    json!({ "version": MANIFEST_VERSION, "components": components })
+    let mut manifest = json!({
+        "version": MANIFEST_VERSION,
+        "set": set.name,
+        "gpui": versions.gpui,
+        "gpui_kit": versions.gpui_kit,
+        "components": components,
+    });
+    manifest["hash"] = json!(hash(&manifest));
+    manifest
+}
+
+/// FNV-1a of the manifest's JSON with its keys sorted, as 16 hex digits.
+fn hash(manifest: &Value) -> String {
+    let mut sorted = manifest.clone();
+    sorted.sort_all_objects();
+    let hash = sorted
+        .to_string()
+        .bytes()
+        .fold(0xcbf29ce484222325u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x100000001b3)
+        });
+    format!("{hash:016x}")
+}
+
+/// The hash of each compiled-in set, by name.
+pub fn hashes() -> BTreeMap<String, String> {
+    hashes_of(sets(), Versions::BUILT)
+}
+
+fn hashes_of(sets: &[Set], versions: Versions) -> BTreeMap<String, String> {
+    sets.iter()
+        .map(|set| {
+            let hash = manifest(set, versions)["hash"].as_str().unwrap().to_owned();
+            (set.name.to_owned(), hash)
+        })
+        .collect()
+}
+
+/// How the sets Elixir was compiled against (name to hash) compare with the
+/// host's.
+#[derive(Debug, Default, PartialEq)]
+pub struct Check {
+    /// In both, with different hashes: the host refuses these.
+    pub mismatched: Vec<String>,
+    /// Elixir's, missing from the host: their tags draw as plain `<div>`s.
+    pub missing: Vec<String>,
+}
+
+pub fn check(host: &BTreeMap<String, String>, elixir: &BTreeMap<String, String>) -> Check {
+    let mut check = Check::default();
+    for (set, hash) in elixir {
+        match host.get(set) {
+            Some(ours) if ours != hash => check.mismatched.push(set.clone()),
+            Some(_) => {}
+            None => check.missing.push(set.clone()),
+        }
+    }
+    check
 }
 
 fn attr(attr: &Attr) -> Value {
@@ -170,6 +242,11 @@ mod tests {
     fn blank(_: Props, _: &mut gpui::Window, _: &mut gpui::App) -> AnyElement {
         div().into_any_element()
     }
+
+    const TEST_VERSIONS: Versions = Versions {
+        gpui: "0.0.1",
+        gpui_kit: "0.0.2",
+    };
 
     const KIT: &[Set] = &[Set {
         name: "kit",
@@ -236,7 +313,48 @@ mod tests {
     fn writes_the_manifest_elixir_reads() {
         let fixture: Value =
             serde_json::from_str(include_str!("../../../test/fixtures/components.json")).unwrap();
-        assert_eq!(manifest(KIT), fixture);
+        assert_eq!(manifest(&KIT[0], TEST_VERSIONS), fixture);
+    }
+
+    #[test]
+    fn hashes_change_with_the_components_and_versions() {
+        let base = hashes_of(KIT, TEST_VERSIONS)["kit"].clone();
+        assert_eq!(base.len(), 16);
+        let bumped = Versions {
+            gpui: "0.0.9",
+            ..TEST_VERSIONS
+        };
+        assert_ne!(hashes_of(KIT, bumped)["kit"], base);
+        let fewer = [Set {
+            name: "kit",
+            components: &KIT[0].components[..1],
+        }];
+        assert_ne!(hashes_of(&fewer, TEST_VERSIONS)["kit"], base);
+    }
+
+    #[test]
+    fn records_the_versions_built_against() {
+        assert_eq!(Versions::BUILT.gpui, "0.3.9");
+        assert!(!Versions::BUILT.gpui_kit.is_empty());
+    }
+
+    #[test]
+    fn checks_elixirs_sets_against_the_hosts() {
+        let map = |pairs: &[(&str, &str)]| -> BTreeMap<String, String> {
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect()
+        };
+        let host = map(&[("kit", "aa"), ("other", "bb")]);
+        assert_eq!(check(&host, &map(&[("kit", "aa")])), Check::default());
+        assert_eq!(
+            check(&host, &map(&[("kit", "ff"), ("gone", "cc")])),
+            Check {
+                mismatched: vec!["kit".into()],
+                missing: vec!["gone".into()],
+            }
+        );
     }
 
     #[test]

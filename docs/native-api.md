@@ -101,6 +101,14 @@ tests both read it, so the two sides can't drift apart.
     `priv/components/<set>.json`. A Rust test fails when the committed
     manifest no longer matches the set.
   - `examples/gallery` shows them, and its end-to-end test draws them.
+- **Manifest checks** (step 2). A manifest names its set and records the
+  `gpui-pre` and gpui-kit versions from `Cargo.lock` and an FNV-1a hash of
+  it all. Each `Baguette.Components` module has `__set__/0`, and
+  `Baguette.Components.compiled/0` collects them. The NIF's `attach` passes
+  them to the host (`check_components`, ABI 2), which refuses a set whose
+  hash differs: it says so in the window, ignores renders and `attach`
+  returns `{:error, :components_mismatch}`. Sets the host lacks are only
+  logged.
 
 ## Next, in order
 
