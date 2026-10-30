@@ -153,6 +153,17 @@ tests both read it, so the two sides can't drift apart.
   to window 0's view. An appearance change is
   `handle_info({:appearance, :dark}, assigns)`. Without a native host, the
   calls change a headless platform that `Baguette.Host.platform/0` reads.
+- **Canvas paint commands and animation** (step 7). A `<canvas>`'s
+  children are shapes in pixels from its top left: `rect` (`rx`), `circle`,
+  `line`, `polyline`, `polygon` and `path` (absolute `M L H V C Q Z`),
+  coloured by `fill-<color>` and `stroke-<color>` with `stroke-width`.
+  `paint.rs` reads them and paints them with `gpui::canvas`, using
+  `paint_quad` and `PathBuilder`. `animate="pulse"` or `"fade-in"` with
+  `duration` (ms) animates an element's opacity from when it first
+  rendered, asking for animation frames while it runs, so the element keeps
+  its layout and stays observable. `<icon animate="spin">` turns with
+  `with_animation`. The gallery's e2e test checks the painted pixels and
+  that the pulse changes.
 
 ## Next, in order
 

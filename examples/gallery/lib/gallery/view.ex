@@ -55,6 +55,17 @@ defmodule Gallery.View do
       <text>Title: {@title}</text>
       <text>Details {if @details, do: "open", else: "closed"}</text>
       <text>Appearance: {@appearance}</text>
+      <div class="flex gap-4 items-center">
+        <div aria-label="Chart" class="w-32 h-16">
+          <canvas class="size-full">
+            <rect x="0" y="0" width="64" height="64" class="fill-[#ff0000]" />
+            <circle cx="96" cy="32" r="24" class="fill-[#00ff00]" />
+            <path d="M 70 60 L 120 60" class="stroke-[#000000]" stroke-width="2" />
+          </canvas>
+        </div>
+        <div aria-label="Pulse" animate="pulse" duration="900" class="w-8 h-8 bg-[#0000ff]" />
+        <icon name="loader" animate="spin" class="size-6" />
+      </div>
       <list id="jobs" rows={10_000} phx-rows="jobs" class="h-40 w-64 border border-border" />
     </div>
     """

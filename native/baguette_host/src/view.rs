@@ -113,6 +113,7 @@ struct Renderer<'a, 'c> {
     checks: &'a mut HashMap<String, CheckSlot>,
     lists: &'a mut HashMap<String, ListState>,
     focus: &'a mut HashMap<String, gpui::FocusHandle>,
+    animations: &'a mut HashMap<String, std::time::Instant>,
     forms: HashMap<String, FormInfo>,
     form: Option<String>,
     seen: HashSet<String>,
@@ -140,7 +141,14 @@ impl Renderer<'_, '_> {
             }
             Node::Element { tag, attrs, .. } if tag == "list" => self.list(attrs, path),
             Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, self.theme),
-            Node::Element { tag, attrs, .. } if tag == "icon" => render_icon(attrs, self.theme),
+            Node::Element { tag, attrs, .. } if tag == "icon" => {
+                render_icon(attrs, self.theme, path)
+            }
+            Node::Element {
+                tag,
+                attrs,
+                children,
+            } if tag == "canvas" => render_canvas(attrs, children, self.theme),
             Node::Element { tag, attrs, .. }
                 if tag == "input" && attrs.get("type").map(String::as_str) == Some("checkbox") =>
             {
@@ -207,6 +215,23 @@ impl Renderer<'_, '_> {
             .enumerate()
             .map(|(i, child)| self.render(child, &format!("{path}.{i}")))
             .collect();
+
+        // `animate="pulse|fade-in"`: its opacity over time, from when it
+        // first rendered; each frame asks for the next while it runs.
+        let opacity = attrs.get("animate").and_then(|kind| {
+            let started = *self
+                .animations
+                .entry(path.to_owned())
+                .or_insert_with(std::time::Instant::now);
+            let (opacity, running) =
+                crate::paint::opacity(kind, started.elapsed(), duration_of(attrs))?;
+            self.seen.insert(format!("animation:{path}"));
+            if running {
+                self.window.request_animation_frame();
+            }
+            Some(opacity)
+        });
+        let base = base.when_some(opacity, |el, opacity| el.opacity(opacity));
 
         let role = role_of(tag, attrs);
         let scroll = |class: &str| classes.split_whitespace().any(|c| c == class);
@@ -640,7 +665,8 @@ fn drag_handlers(
 /// (`<icon name="undo-2" class="size-4 text-primary" />`), 16px square
 /// unless sized, in its `text-*` colour or else the inherited text colour.
 /// An unknown name draws nothing in the same space, and is logged once.
-fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
+/// `animate="spin"` turns it once every `duration` ms (default 1000).
+fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme, id: &str) -> AnyElement {
     let name = attrs.get("name").map(String::as_str).unwrap_or("");
     let path = icon_path(name);
     if path.is_none() {
@@ -654,6 +680,8 @@ fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
         path,
         classes: attrs.get("class").cloned().unwrap_or_default(),
         theme: theme.clone(),
+        spin: (attrs.get("animate").map(String::as_str) == Some("spin"))
+            .then(|| (SharedString::from(id.to_owned()), duration_of(attrs))),
     })
     .into_any_element()
 }
@@ -674,6 +702,27 @@ struct Icon {
     path: Option<SharedString>,
     classes: String,
     theme: Theme,
+    spin: Option<(SharedString, std::time::Duration)>,
+}
+
+/// An animation's `duration` attribute, in ms (default 1000).
+fn duration_of(attrs: &BTreeMap<String, String>) -> std::time::Duration {
+    let ms = attrs
+        .get("duration")
+        .and_then(|d| d.parse().ok())
+        .unwrap_or(1000);
+    std::time::Duration::from_millis(ms)
+}
+
+/// `<canvas>` and its shapes (`paint.rs`), sized by its classes.
+fn render_canvas(attrs: &BTreeMap<String, String>, children: &[Node], theme: &Theme) -> AnyElement {
+    let shapes = crate::paint::shapes(children, theme);
+    let canvas = gpui::canvas(
+        |_, _, _| {},
+        move |bounds, _, window, _| crate::paint::paint(&shapes, bounds.origin, window),
+    );
+    let classes = attrs.get("class").map(String::as_str).unwrap_or("");
+    style::apply(canvas, style::for_variant(classes, Variant::Base), theme).into_any_element()
 }
 
 impl gpui::RenderOnce for Icon {
@@ -689,9 +738,25 @@ impl gpui::RenderOnce for Icon {
             style::for_variant(&self.classes, Variant::Base),
             &self.theme,
         );
-        match self.path {
+        let svg = match self.path {
             Some(path) => svg.path(path),
             None => svg,
+        };
+        match self.spin {
+            Some((id, period)) => {
+                use gpui::AnimationExt;
+                svg.with_animation(
+                    gpui::ElementId::Name(id),
+                    gpui::Animation::new(period).repeat(),
+                    |svg, delta| {
+                        svg.with_transformation(gpui::Transformation::rotate(gpui::percentage(
+                            delta,
+                        )))
+                    },
+                )
+                .into_any_element()
+            }
+            None => svg.into_any_element(),
         }
     }
 }
@@ -857,6 +922,8 @@ pub struct Root {
     checks: HashMap<String, CheckSlot>,
     lists: HashMap<String, ListState>,
     focus: HashMap<String, gpui::FocusHandle>,
+    /// When each animated element first rendered.
+    animations: HashMap<String, std::time::Instant>,
     /// Key bindings already given to GPUI, which has no way to remove one.
     bound: HashSet<crate::keymap::Binding>,
     body: Option<gpui::FocusHandle>,
@@ -993,6 +1060,7 @@ impl Root {
         let mut checks = std::mem::take(&mut self.checks);
         let mut lists = std::mem::take(&mut self.lists);
         let mut focus = std::mem::take(&mut self.focus);
+        let mut animations = std::mem::take(&mut self.animations);
         let rows = {
             let mut renderer = Renderer {
                 window_id: self.window,
@@ -1003,6 +1071,7 @@ impl Root {
                 checks: &mut checks,
                 lists: &mut lists,
                 focus: &mut focus,
+                animations: &mut animations,
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
@@ -1018,6 +1087,7 @@ impl Root {
         lists.insert(key.to_owned(), list);
         self.lists = lists;
         self.focus = focus;
+        self.animations = animations;
         self.inputs = inputs;
         self.checks = checks;
         self.frame = frame;
@@ -1032,6 +1102,7 @@ impl Root {
             checks: HashMap::new(),
             lists: HashMap::new(),
             focus: HashMap::new(),
+            animations: HashMap::new(),
             bound: HashSet::new(),
             body: None,
             kept: Vec::new(),
@@ -1251,6 +1322,7 @@ impl gpui::Render for Root {
         let mut checks = std::mem::take(&mut self.checks);
         let mut lists = std::mem::take(&mut self.lists);
         let mut focus = std::mem::take(&mut self.focus);
+        let mut animations = std::mem::take(&mut self.animations);
         let (content, forms, seen) = {
             let mut renderer = Renderer {
                 window_id: self.window,
@@ -1261,6 +1333,7 @@ impl gpui::Render for Root {
                 checks: &mut checks,
                 lists: &mut lists,
                 focus: &mut focus,
+                animations: &mut animations,
                 forms: HashMap::new(),
                 form: None,
                 seen: HashSet::new(),
@@ -1282,8 +1355,12 @@ impl gpui::Render for Root {
         focus.retain(|path, _| path.contains(".rows.") || seen.contains(&format!("focus:{path}")));
         self.inputs = inputs;
         self.checks = checks;
+        animations.retain(|path, _| {
+            path.contains(".rows.") || seen.contains(&format!("animation:{path}"))
+        });
         self.lists = lists;
         self.focus = focus;
+        self.animations = animations;
         self.forms = forms;
         self.frame = frame;
         // The window's content holds focus when nothing in it does, as a
