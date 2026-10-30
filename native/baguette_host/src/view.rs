@@ -1052,4 +1052,13 @@ mod tests {
         assert!(icon_path("../Cargo").is_none());
         assert!(icon_path("").is_none());
     }
+
+    #[test]
+    fn icons_are_embedded_in_every_build() {
+        // A debug build that reads them from the build machine's disk has
+        // none on a phone.
+        use rust_embed::RustEmbed;
+        let icon = gpui_kit::assets::AllAssets::get("icons/save.svg").expect("save icon");
+        assert!(matches!(icon.data, std::borrow::Cow::Borrowed(_)));
+    }
 }

@@ -246,15 +246,32 @@ fn run(_args: Vec<String>) {
     eprintln!("baguette: this host was built without the BEAM (set BAGUETTE_LIBERLANG)");
 }
 
+/// The name a release's NIF `<stem>.so` ships under in the APK:
+/// `lib<name>.so`, where the name drops a leading `lib` and a precompiled
+/// NIF's `-v<version>-nif-<abi>-<triple>` suffix, so
+/// `libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu` ships as
+/// `libexplorer.so`. `Baguette.Release.AndroidNifs.jni_name/1` names the
+/// files it puts in the APK by the same rule.
+#[cfg_attr(not(target_os = "android"), allow(dead_code))]
+pub fn shipped_name(stem: &str) -> String {
+    let name = stem.strip_prefix("lib").unwrap_or(stem);
+    let end = name
+        .match_indices("-v")
+        .find(|(i, _)| name[i + 2..].starts_with(|c: char| c.is_ascii_digit()))
+        .map_or(name.len(), |(i, _)| i);
+    format!("lib{}.so", &name[..end])
+}
+
 /// Android: the release ships inside this library and is unpacked into the
 /// app's data on first launch.
 ///
 /// Android only runs executables from the app's native library directory and
 /// links each library against what it lists, so the APK carries the BEAM as
 /// `liberlang.so`, its port programs as `lib<name>.so` (`erl_child_setup`,
-/// `inet_gethost`) and each NIF as `lib<name>.so`. Unpacking links the release
-/// to them: `bin/<program>` and every `priv/<name>.so` and
-/// `priv/native/<name>.so` become symlinks into that directory.
+/// `inet_gethost`) and each NIF as `lib<name>.so` ([`shipped_name`]).
+/// Unpacking links the release to them: `bin/<program>` and every
+/// `priv/<name>.so` and `priv/native/<name>.so` become symlinks into that
+/// directory.
 #[cfg(target_os = "android")]
 pub mod android {
     use std::path::{Path, PathBuf};
@@ -358,12 +375,7 @@ pub mod android {
         {
             // Rustler NIFs live in `priv/native`, elixir_make ones in `priv`.
             let dirs = [app.path().join("priv"), app.path().join("priv/native")];
-            for nif in dirs
-                .iter()
-                .flat_map(std::fs::read_dir)
-                .flatten()
-                .flatten()
-            {
+            for nif in dirs.iter().flat_map(std::fs::read_dir).flatten().flatten() {
                 let path = nif.path();
                 if !path.is_file() {
                     continue;
@@ -374,17 +386,31 @@ pub mod android {
                 ) else {
                     continue;
                 };
-                let shipped = native.join(format!("lib{stem}.so"));
+                let name = super::shipped_name(stem);
+                let shipped = native.join(&name);
                 if shipped.is_file() {
                     link(shipped, path.clone())?;
                 } else {
-                    log::warn!(
-                        "baguette: no lib{stem}.so in the app for {}",
-                        path.display()
-                    );
+                    log::warn!("baguette: no {name} in the app for {}", path.display());
                 }
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn nifs_ship_as_lib_and_their_rust_library_name() {
+        assert_eq!(shipped_name("sqlite3_nif"), "libsqlite3_nif.so");
+        assert_eq!(shipped_name("baguette_nif"), "libbaguette_nif.so");
+        assert_eq!(shipped_name("libixpipe_sqlite"), "libixpipe_sqlite.so");
+        assert_eq!(
+            shipped_name("libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu"),
+            "libexplorer.so"
+        );
     }
 }

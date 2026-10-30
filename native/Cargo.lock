@@ -631,6 +631,7 @@ dependencies = [
  "gpui-playwright",
  "libc",
  "log",
+ "rust-embed",
  "serde",
  "serde_json",
  "tar",

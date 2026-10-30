@@ -317,7 +317,7 @@ defmodule Baguette.Release do
 
   # The release's `lib` and `releases`, with each NIF emptied: the build
   # machine's NIFs are of no use on Android, where the host links each one to
-  # its `lib<stem>.so` in the APK.
+  # its `lib<name>.so` in the APK (`AndroidNifs.jni_name/1`).
   defp archive_files(root) do
     nifs =
       for %{app: app, vsn: vsn, files: files} <- AndroidNifs.find(Path.join(root, "lib")),
