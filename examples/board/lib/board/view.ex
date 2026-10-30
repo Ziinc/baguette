@@ -9,7 +9,7 @@ defmodule Board.View do
     <div class="relative size-full bg-[#f8fafc]">
       <line x1="20" y1="20" x2={@x} y2={@y} class="stroke-[#64748b]" />
       <line x1="300" y1="40" x2="420" y2="160" curve class="stroke-[#0DB9B6]" />
-      <div class="absolute left-[20px] top-[200px] w-[140px] h-[120px] overflow-y-scroll bg-[#ffffff]"
+      <div class="absolute left-[20px] top-[200px] w-[140px] h-[120px] overflow-y-auto bg-[#ffffff]"
         aria-label="Scroller">
         <div class="flex-col">
           <text :for={i <- 1..30} aria-label={"Item #{i}"}>Item {i}</text>

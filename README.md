@@ -73,7 +73,7 @@ Templates use HTML's vocabulary where GPUI can draw it:
 
 | Write | Get |
 | --- | --- |
-| `<div>`, `<text>`, `<button>` and Tailwind-style classes | flex layout, colours (theme tokens, `[#hex]`, `token/12` alpha), spacing, `max-w-*`/`min-h-*`, `relative`/`absolute` with `left-[Npx]`, `top-*`, `overflow-y-scroll`, `hover:`/`active:`/`disabled:` |
+| `<div>`, `<text>`, `<button>` and Tailwind-style classes | flex layout, colours (theme tokens, `[#hex]`, `token/12` alpha), spacing, `max-w-*`/`min-h-*`, `relative`/`absolute` with `left-[Npx]`, `top-*`, `overflow-(x-|y-)scroll` or `-auto` (wheel and touch scrolling), `hover:`/`active:`/`disabled:` |
 | `<input name value placeholder>` (`type="password"` masks) | a native text input (gpui-kit's) |
 | `<input type="checkbox" checked>` | a native checkbox |
 | `<form phx-submit phx-change>` | Enter in an input, or a `<button type="submit">`, submits it |
