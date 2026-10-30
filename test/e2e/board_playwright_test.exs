@@ -53,4 +53,13 @@ defmodule Baguette.E2E.BoardPlaywrightTest do
     assert %{"width" => width} = Playwright.bounding_box(page, "Note")
     assert_in_delta width, 150, 1
   end
+
+  test "scroll/4 turns the mouse wheel over a scrolling element", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Item 1")
+    %{"y" => before} = Playwright.bounding_box(page, "Item 20")
+    Playwright.scroll(page, "Scroller", 0, 200)
+    Process.sleep(200)
+    %{"y" => later} = Playwright.bounding_box(page, "Item 20")
+    assert_in_delta before - later, 200, 40
+  end
 end

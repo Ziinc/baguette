@@ -120,7 +120,7 @@ assert Baguette.Playwright.count(page, role: "listitem") == 1
 assert :ok = Baguette.Playwright.await_text(page, "0 of 1 left")
 ```
 
-Actions: `click`, `fill`, `clear`, `press`, `type`, `check`, `uncheck`,
+Actions: `click`, `scroll`, `fill`, `clear`, `press`, `type`, `check`, `uncheck`,
 `focus`, `hover`, `drag`, `resize`. Reads: `input_value`, `checked?`,
 `visible?`, `enabled?`, `text_content`, `attribute`, `count`,
 `bounding_box`, `aria_snapshot`, `buttons`, `screenshot`. Waits:
