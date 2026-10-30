@@ -53,7 +53,10 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
       await_exit(os_pid, 50)
     end
 
-    defp await_exit(os_pid, 0), do: System.cmd("kill", ["-9", "#{os_pid}"]) && :ok
+    defp await_exit(os_pid, 0) do
+      System.cmd("kill", ["-9", "#{os_pid}"], stderr_to_stdout: true)
+      :ok
+    end
 
     defp await_exit(os_pid, tries) do
       case System.cmd("kill", ["-0", "#{os_pid}"], stderr_to_stdout: true) do
@@ -92,15 +95,16 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
       :ok
     end
 
-    @doc "Waits until `text` is shown, or returns an error after the timeout."
-    @spec await_text(page(), String.t()) :: :ok | {:error, term()}
-    def await_text(page, text) do
+    @doc """
+    Waits until `text` is shown, or returns an error after `:timeout`
+    milliseconds (default 10 s).
+    """
+    @spec await_text(page(), String.t(), keyword()) :: :ok | {:error, term()}
+    def await_text(page, text, opts \\ []) do
       selector = ~s(internal:text=#{inspect(text)}s)
+      wait = Keyword.merge(page.opts, Keyword.take(opts, [:timeout]))
 
-      case Frame.wait_for_selector(
-             page.frame,
-             page.opts ++ [selector: selector, state: "visible"]
-           ) do
+      case Frame.wait_for_selector(page.frame, wait ++ [selector: selector, state: "visible"]) do
         {:ok, _} -> :ok
         error -> error
       end

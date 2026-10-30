@@ -39,4 +39,12 @@ defmodule Baguette.E2E.BoardPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Lifts: 1")
     assert :ok = Playwright.await_text(page, "At 40,40")
   end
+
+  test "pressing and releasing without moving is not a drag", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Lifts: 0")
+    Playwright.drag(page, "Lid", 0, 0)
+    Playwright.drag(page, "Lid", 50, 0)
+    assert :ok = Playwright.await_text(page, "Lifts: 1")
+    assert {:error, _} = Playwright.await_text(page, "Lifts: 2", timeout: 500)
+  end
 end
