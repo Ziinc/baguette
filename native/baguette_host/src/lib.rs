@@ -60,15 +60,7 @@ pub fn run() {
             #[cfg(not(feature = "playwright"))]
             tauri_plugin_gpui::init(app)?;
             #[cfg(feature = "playwright")]
-            tauri_plugin_gpui::init_with(
-                app,
-                tauri_plugin_gpui::GpuiConfig::new()
-                    .assets(gpui_kit::assets::Assets)
-                    .on_launch(|cx| {
-                        gpui_kit::init(cx);
-                        playwright::start(cx);
-                    }),
-            )?;
+            tauri_plugin_gpui::init_with(app, playwright::config())?;
             let (title, (width, height)) = match &release {
                 Ok(r) => (
                     r.window.title.clone().unwrap_or(r.name.clone()),
@@ -111,14 +103,15 @@ pub fn run() {
                 .detach();
                 root
             };
-            // Playwright reads painted text under gpui-kit's `Root`.
+            #[cfg(not(feature = "playwright"))]
+            window.attach_gpui(build)?;
+            // gpui-kit's Root observes what each frame paints, which is what
+            // Playwright's locators read.
             #[cfg(feature = "playwright")]
             window.attach_gpui_view(Default::default(), move |window, cx| {
                 let root = build(cx);
                 cx.new(|cx| gpui_kit::base::Root::new(root, window, cx))
             })?;
-            #[cfg(not(feature = "playwright"))]
-            window.attach_gpui(build)?;
 
             if let Ok(release) = release {
                 beam::start(release, host)?;

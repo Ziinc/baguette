@@ -104,6 +104,14 @@ mix test
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```
 
+End-to-end tests through [gpui-playwright](https://github.com/ziinc/gpui-playwright),
+written in ExUnit with `Baguette.Playwright`:
+
+```sh
+(cd examples/counter && BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
+mix test --only playwright
+```
+
 ## Releasing
 
 Pushing a `v*` tag runs CI and publishes the Firehose builds as a GitHub

@@ -25,7 +25,10 @@ defmodule Baguette.MixProject do
     [
       {:rustler, "~> 0.38"},
       {:phoenix_live_view, "~> 1.2"},
-      {:floki, "~> 0.38"}
+      {:floki, "~> 0.38"},
+      # Baguette.Playwright: end-to-end tests through gpui-playwright.
+      {:playwright_ex, "~> 0.15", optional: true},
+      {:websockex, "~> 0.4", optional: true}
     ]
   end
 end

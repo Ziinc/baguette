@@ -33,9 +33,33 @@ pub enum Node {
     },
 }
 
+/// With the `playwright` feature, registers an element with gpui-kit so
+/// Playwright's locators find it by its role and label.
+macro_rules! observed {
+    ($element:expr) => {{
+        #[cfg(feature = "playwright")]
+        {
+            use gpui_kit::base::TestSupportExt;
+            $element.test_support().into_any_element()
+        }
+        #[cfg(not(feature = "playwright"))]
+        {
+            $element.into_any_element()
+        }
+    }};
+}
+
 pub fn render(node: &Node, path: &str, window: u32, theme: &Theme) -> AnyElement {
     match node {
-        Node::Text(text) => observe_text(SharedString::from(text.clone())),
+        #[cfg(feature = "playwright")]
+        Node::Text(text) => {
+            use gpui_kit::base::TestTextExt;
+            SharedString::from(text.clone())
+                .test_text(text.clone())
+                .into_any_element()
+        }
+        #[cfg(not(feature = "playwright"))]
+        Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
         Node::Element {
             tag,
             attrs,
@@ -83,7 +107,7 @@ fn render_element(
         });
 
     let Some(on_click) = click_handler(window, attrs).filter(|_| !disabled) else {
-        return element.into_any_element();
+        return observed!(element);
     };
     #[cfg(target_os = "android")]
     let element = element.when_some(attrs.get("aria-label"), |el, label| {
@@ -96,11 +120,12 @@ fn render_element(
         .map(str::to_owned)
         .collect();
     let (hover_theme, active_theme) = (theme.clone(), theme.clone());
-    element
-        .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
-        .active(move |s| style::apply(s, active.iter(), &active_theme))
-        .on_click(on_click)
-        .into_any_element()
+    observed!(
+        element
+            .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
+            .active(move |s| style::apply(s, active.iter(), &active_theme))
+            .on_click(on_click)
+    )
 }
 
 /// With the `playwright` feature, registers the element for Playwright's
