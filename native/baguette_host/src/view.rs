@@ -313,7 +313,7 @@ impl Renderer<'_, '_> {
             None => element,
         };
 
-        let on_click: Option<Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>> =
+        let on_click: Option<ClickHandler> =
             match (click_handler(window, attrs), self.submits(tag, attrs)) {
                 (Some(click), _) => Some(Box::new(click)),
                 (None, _) if crate::pick::Pick::from_attrs(window, attrs).is_some() => {
@@ -618,6 +618,7 @@ thread_local! {
 const DRAG_THRESHOLD: f32 = 3.;
 
 type MouseUp = Box<dyn Fn(&gpui::MouseUpEvent, &mut gpui::Window, &mut gpui::App)>;
+type ClickHandler = Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>;
 
 /// What releasing a `phx-drag` element does, over it or anywhere else:
 /// send the event, its `phx-value-*` attributes and how far the pointer
@@ -782,7 +783,7 @@ fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
         .into_iter()
         .flat_map(|c| c.split_whitespace())
         .find_map(|c| style::color(c.strip_prefix("stroke-")?, theme))
-        .unwrap_or_else(|| gpui::black().into());
+        .unwrap_or_else(gpui::black);
     gpui::canvas(
         |_, _, _| {},
         move |bounds, _, window, _| {
@@ -1163,18 +1164,18 @@ impl Root {
     fn form_values(&self, form: &str, cx: &gpui::App) -> Map<String, Value> {
         let mut values = Map::new();
         for slot in self.inputs.values() {
-            if let (Some(name), Some(f)) = (&slot.name, &slot.form) {
-                if f == form {
-                    let text = slot.state.read(cx).value().to_string();
-                    values.insert(name.clone(), Value::String(text));
-                }
+            if let (Some(name), Some(f)) = (&slot.name, &slot.form)
+                && f == form
+            {
+                let text = slot.state.read(cx).value().to_string();
+                values.insert(name.clone(), Value::String(text));
             }
         }
         for slot in self.checks.values() {
-            if let (Some(name), Some(f), true) = (&slot.name, &slot.form, slot.checked) {
-                if f == form {
-                    values.insert(name.clone(), Value::String("on".into()));
-                }
+            if let (Some(name), Some(f), true) = (&slot.name, &slot.form, slot.checked)
+                && f == form
+            {
+                values.insert(name.clone(), Value::String("on".into()));
             }
         }
         values
@@ -1447,7 +1448,6 @@ mod tests {
     fn icons_are_embedded_in_every_build() {
         // A debug build that reads them from the build machine's disk has
         // none on a phone.
-        use rust_embed::RustEmbed;
         let icon = gpui_kit::assets::AllAssets::get("icons/save.svg").expect("save icon");
         assert!(matches!(icon.data, std::borrow::Cow::Borrowed(_)));
     }
