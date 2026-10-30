@@ -127,8 +127,8 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         }
     }
     const SPACING: &[&str] = &[
-        "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr", "mx", "my", "mt", "mb", "p",
-        "m", "w", "h", "left", "top", "right", "bottom",
+        "max-w", "max-h", "min-h", "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr",
+        "mx", "my", "mt", "mb", "p", "m", "w", "h", "left", "top", "right", "bottom",
     ];
     for name in SPACING {
         if let Some(len) = class
@@ -154,6 +154,9 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
                 "w" => s.w(len),
                 "h" => s.h(len),
                 "size" => s.size(len),
+                "max-w" => s.max_w(len),
+                "max-h" => s.max_h(len),
+                "min-h" => s.min_h(len),
                 "left" => s.left(len),
                 "top" => s.top(len),
                 "right" => s.right(len),
