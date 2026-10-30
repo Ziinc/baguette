@@ -32,7 +32,14 @@ defmodule Baguette.Release.AndroidNifs do
       baguette: [android_nifs: [exqlite: false, explorer: [args: ["--features", "x"], env: [{"K", "v"}]]]]
 
   `args` are added to the `cargo build` or `make` command and `env` to its
-  environment.
+  environment. `libs` are prebuilt Android libraries the NIF links, shipped
+  beside it under their own names (`libduckdb.so`): a file the app carries
+  under the same name is the build machine's copy, so it is not built as a
+  NIF, and the host links it to the shipped one on first launch. An override
+  can also be a function of the target triple, for env and libs that differ
+  by ABI:
+
+      android_nifs: [engine: fn triple -> [libs: ["android/\#{triple}/libduckdb.so"]] end]
   """
 
   @typedoc "A NIF a release carries: its app, version and files under the app."
@@ -48,6 +55,7 @@ defmodule Baguette.Release.AndroidNifs do
           env: [{String.t(), String.t()}],
           cache: String.t(),
           outputs: [{String.t(), String.t()}],
+          libs: [{String.t(), String.t()}],
           patch_rustler: boolean()
         }
 
@@ -102,20 +110,40 @@ defmodule Baguette.Release.AndroidNifs do
 
     for %{app: app} = nif <- nifs,
         app not in skip,
-        override = Map.get(overrides, app, []),
+        override = override(Map.get(overrides, app, []), triple),
         override != false do
       dir = Map.get(opts[:deps], app) || raise ArgumentError, "no source for #{app}'s NIF"
       dir = Path.expand(dir)
       cache = Path.join([opts[:out], triple, "#{app}-#{nif.vsn}"])
-      build = plan_one(nif, dir, triple, cache, opts)
+      libs = for lib <- override[:libs] || [], do: {lib, Path.basename(lib)}
+      shipped = for {_, name} <- libs, do: name
+      nif = %{nif | files: Enum.reject(nif.files, &(jni_name(&1) in shipped))}
 
-      %{
-        build
-        | commands: add_args(build.commands, override[:args] || []),
-          env: build.env ++ (override[:env] || [])
-      }
+      build =
+        if nif.files == [],
+          do: %{
+            app: app,
+            vsn: nif.vsn,
+            kind: :rustler,
+            cd: dir,
+            commands: [],
+            env: [],
+            cache: cache,
+            outputs: [],
+            patch_rustler: false
+          },
+          else: plan_one(nif, dir, triple, cache, opts)
+
+      Map.merge(build, %{
+        commands: add_args(build.commands, override[:args] || []),
+        env: build.env ++ (override[:env] || []),
+        libs: libs
+      })
     end
   end
+
+  defp override(fun, triple) when is_function(fun, 1), do: fun.(triple)
+  defp override(override, _triple), do: override
 
   defp plan_one(nif, dir, triple, cache, opts) do
     cond do
@@ -262,12 +290,17 @@ defmodule Baguette.Release.AndroidNifs do
 
   @doc """
   Runs `builds`, skipping any whose outputs are already kept, and copies each
-  output into `jni`. `run` runs one command: `run.(dir, cmd, args, env)`.
+  output into `jni`, with each build's `libs` (afresh every time, as they are
+  not built here). `run` runs one command: `run.(dir, cmd, args, env)`.
   """
   @spec build!([build], String.t(), (String.t(), String.t(), [String.t()], list() -> :ok)) ::
           :ok
   def build!(builds, jni, run) do
     for build <- builds do
+      for {lib, _} <- build[:libs] || [], not File.regular?(lib) do
+        Mix.raise("#{build.app}'s NIF links #{lib}, which does not exist")
+      end
+
       kept = for {_, name} <- build.outputs, do: Path.join(build.cache, name)
 
       unless Enum.all?(kept, &File.regular?/1) do
@@ -281,6 +314,7 @@ defmodule Baguette.Release.AndroidNifs do
       end
 
       for name <- kept, do: File.cp!(name, Path.join(jni, Path.basename(name)))
+      for {lib, name} <- build[:libs] || [], do: File.cp!(lib, Path.join(jni, name))
     end
 
     :ok

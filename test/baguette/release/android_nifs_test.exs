@@ -145,6 +145,111 @@ defmodule Baguette.Release.AndroidNifsTest do
     assert {"K", "v"} in build.env
   end
 
+  # An app whose NIF links a prebuilt library it carries beside itself
+  # (priv/native/libduckdb.so, for the build machine).
+  defp with_linked_lib(ctx) do
+    app = Path.join(ctx.lib, "engine-0.1.0/priv/native")
+    File.mkdir_p!(app)
+    File.write!(Path.join(app, "libduckdb.so"), "host elf")
+    File.write!(Path.join(app, "libengine_nif.so"), "host elf")
+    crate = Path.join(ctx.deps, "engine/native/engine_nif")
+    File.mkdir_p!(crate)
+    File.write!(Path.join(crate, "Cargo.toml"), ~s([package]\nname = "engine_nif"\n))
+    nifs = Enum.filter(AndroidNifs.find(ctx.lib), &(&1.app == "engine"))
+    opts = Keyword.update!(ctx.opts, :deps, &Map.put(&1, "engine", Path.join(ctx.deps, "engine")))
+    {nifs, opts, crate}
+  end
+
+  test "libs ship beside a NIF in place of the build machine's copy, which is not built", ctx do
+    {nifs, opts, crate} = with_linked_lib(ctx)
+    lib = Path.join(ctx.tmp_dir, "android/libduckdb.so")
+
+    opts =
+      Keyword.put(opts, :overrides,
+        engine: [libs: [lib], env: [{"DUCKDB_LIB_DIR", Path.dirname(lib)}]]
+      )
+
+    [build] = AndroidNifs.plan(nifs, @triple, opts)
+    target = Path.join(ctx.out, "target/engine")
+
+    assert build.cd == crate
+
+    assert build.outputs == [
+             {Path.join(target, "#{@triple}/release/libengine_nif.so"), "libengine_nif.so"}
+           ]
+
+    assert build.libs == [{lib, "libduckdb.so"}]
+    assert {"DUCKDB_LIB_DIR", Path.dirname(lib)} in build.env
+  end
+
+  test "an override can depend on the triple", ctx do
+    {nifs, opts, _} = with_linked_lib(ctx)
+    me = self()
+
+    override = fn triple ->
+      send(me, {:triple, triple})
+      [libs: ["/android/#{triple}/libduckdb.so"]]
+    end
+
+    [build] = AndroidNifs.plan(nifs, @triple, Keyword.put(opts, :overrides, engine: override))
+    assert_received {:triple, @triple}
+    assert build.libs == [{"/android/#{@triple}/libduckdb.so", "libduckdb.so"}]
+
+    assert AndroidNifs.plan(
+             nifs,
+             @triple,
+             Keyword.put(opts, :overrides, engine: fn _ -> false end)
+           ) == []
+  end
+
+  test "build!/3 copies libs in on every build, and fails without them", ctx do
+    {nifs, opts, _} = with_linked_lib(ctx)
+    lib = Path.join(ctx.tmp_dir, "android/libduckdb.so")
+
+    [build] =
+      AndroidNifs.plan(nifs, @triple, Keyword.put(opts, :overrides, engine: [libs: [lib]]))
+
+    jni = Path.join(ctx.tmp_dir, "jni")
+    File.mkdir_p!(jni)
+
+    run = fn _dir, _cmd, _args, _env ->
+      for {built, _} <- build.outputs do
+        File.mkdir_p!(Path.dirname(built))
+        File.write!(built, "android nif")
+      end
+
+      :ok
+    end
+
+    assert_raise Mix.Error, ~r/libduckdb\.so/, fn -> AndroidNifs.build!([build], jni, run) end
+
+    File.mkdir_p!(Path.dirname(lib))
+    File.write!(lib, "android lib v1")
+    assert AndroidNifs.build!([build], jni, run) == :ok
+    assert File.read!(Path.join(jni, "libduckdb.so")) == "android lib v1"
+    assert File.read!(Path.join(jni, "libengine_nif.so")) == "android nif"
+
+    # The NIF is kept; the library is copied afresh.
+    File.write!(lib, "android lib v2")
+    assert AndroidNifs.build!([build], jni, run) == :ok
+    assert File.read!(Path.join(jni, "libduckdb.so")) == "android lib v2"
+  end
+
+  test "an app whose files are all libs builds nothing", ctx do
+    {nifs, opts, _} = with_linked_lib(ctx)
+    nifs = for nif <- nifs, do: %{nif | files: ["priv/native/libduckdb.so"]}
+
+    [build] =
+      AndroidNifs.plan(
+        nifs,
+        @triple,
+        Keyword.put(opts, :overrides, engine: [libs: ["/a/libduckdb.so"]])
+      )
+
+    assert build.commands == [] and build.outputs == []
+    assert build.libs == [{"/a/libduckdb.so", "libduckdb.so"}]
+  end
+
   test "relative dep paths are expanded", ctx do
     File.cd!(ctx.tmp_dir, fn ->
       opts = Keyword.put(ctx.opts, :deps, %{"explorer" => "deps/explorer"})
