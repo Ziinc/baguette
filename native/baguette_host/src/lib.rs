@@ -7,6 +7,7 @@
 
 mod beam;
 mod bridge;
+pub mod components;
 mod pick;
 #[cfg(feature = "playwright")]
 mod playwright;
