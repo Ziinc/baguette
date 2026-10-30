@@ -10,6 +10,7 @@ mod bridge;
 pub mod components;
 mod keymap;
 mod list;
+mod paint;
 mod patch;
 mod pick;
 mod platform;

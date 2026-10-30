@@ -68,4 +68,40 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     Playwright.click(page, "Details")
     assert :ok = Playwright.await_text(page, "Details open")
   end
+
+  test "a canvas paints its shapes; pulse animates", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Palette closed")
+    %{"x" => x, "y" => y} = Playwright.bounding_box(page, label: "Chart")
+    shot = Playwright.screenshot(page)
+    assert pixel(shot, x + 10, y + 10) == {255, 0, 0}
+    assert pixel(shot, x + 96, y + 32) == {0, 255, 0}
+
+    %{"x" => px, "y" => py, "width" => w} = Playwright.bounding_box(page, label: "Pulse")
+
+    samples =
+      for _ <- 1..4 do
+        Process.sleep(200)
+        pixel(Playwright.screenshot(page), px + w / 2, py + w / 2)
+      end
+
+    assert length(Enum.uniq(samples)) > 1
+  end
+
+  # The colour at `x`, `y` of a PNG, through ImageMagick.
+  defp pixel(png, x, y) do
+    path = Path.join(System.tmp_dir!(), "gallery-#{System.unique_integer([:positive])}.png")
+    File.write!(path, png)
+    at = "p{#{round(x)},#{round(y)}}"
+
+    {out, 0} =
+      System.cmd("convert", [
+        path,
+        "-format",
+        "%[fx:int(255*#{at}.r)],%[fx:int(255*#{at}.g)],%[fx:int(255*#{at}.b)]",
+        "info:"
+      ])
+
+    File.rm(path)
+    out |> String.split(",") |> Enum.map(&String.to_integer(String.trim(&1))) |> List.to_tuple()
+  end
 end
