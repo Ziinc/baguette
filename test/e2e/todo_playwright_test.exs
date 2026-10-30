@@ -68,4 +68,34 @@ defmodule Baguette.E2E.TodoPlaywrightTest do
     Playwright.click(page, role: "button", name: "Delete Buy milk")
     assert :ok = Playwright.await_text(page, "0 of 0 left")
   end
+
+  test "gpui-kit components take their colours from the app's theme", %{page: page} do
+    Playwright.fill(page, "Title", "Buy milk")
+    Playwright.press(page, "Title", "Enter")
+    Playwright.check(page, "Buy milk")
+    assert :ok = Playwright.await_text(page, "0 of 1 left")
+
+    %{"x" => x, "y" => y, "width" => w, "height" => h} =
+      Playwright.bounding_box(page, role: "checkbox", name: "Buy milk")
+
+    png = Path.join(System.tmp_dir!(), "baguette-todo-theme.png")
+    File.write!(png, Playwright.screenshot(page))
+    # The checked box is filled with the theme's primary (Todo.Theme's teal),
+    # not gpui-kit's default near-black: most of its 16px box is that teal.
+    teal = Enum.count(pixels(png, x, y, w, h), &close?(&1, {0x0D, 0xB9, 0xB6}))
+    assert teal > w * h / 3, "only #{teal} teal pixels in the checkbox"
+    assert w > 0
+  end
+
+  defp pixels(png, x, y, w, h) do
+    crop = "#{round(w)}x#{round(h)}+#{round(x)}+#{round(y)}"
+    {out, 0} = System.cmd("convert", [png, "-crop", crop, "txt:-"])
+
+    for [_, hex] <- Regex.scan(~r/#([0-9A-F]{6})/, out) do
+      <<r::binary-2, g::binary-2, b::binary-2>> = hex
+      {String.to_integer(r, 16), String.to_integer(g, 16), String.to_integer(b, 16)}
+    end
+  end
+
+  defp close?({r, g, b}, {r2, g2, b2}), do: abs(r - r2) + abs(g - g2) + abs(b - b2) < 40
 end

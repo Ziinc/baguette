@@ -47,4 +47,10 @@ defmodule Baguette.E2E.BoardPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Lifts: 1")
     assert {:error, _} = Playwright.await_text(page, "Lifts: 2", timeout: 500)
   end
+
+  test "max-w caps a full-width element", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Capped")
+    assert %{"width" => width} = Playwright.bounding_box(page, "Note")
+    assert_in_delta width, 150, 1
+  end
 end

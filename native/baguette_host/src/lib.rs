@@ -102,10 +102,7 @@ pub fn run() {
                             Ok(frame) => frame,
                             Err(error) => notice(format!("Invalid render from Elixir: {error}")),
                         };
-                        handle.update(cx, |root, cx| {
-                            root.frame = frame;
-                            cx.notify();
-                        });
+                        handle.update(cx, |root, cx| root.show(frame, cx));
                     }
                 })
                 .detach();

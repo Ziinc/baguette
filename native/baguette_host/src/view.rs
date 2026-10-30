@@ -144,8 +144,13 @@ impl Renderer<'_, '_> {
             .collect();
 
         let role = role_of(tag, attrs);
+        let scroll = |class: &str| classes.split_whitespace().any(|c| c == class);
         let element = base
             .id(SharedString::from(path.to_owned()))
+            // Scrolling needs the element's id, so it is not a plain style.
+            .when(scroll("overflow-scroll"), |el| el.overflow_scroll())
+            .when(scroll("overflow-x-scroll"), |el| el.overflow_x_scroll())
+            .when(scroll("overflow-y-scroll"), |el| el.overflow_y_scroll())
             .children(rendered)
             .when_some(role, |el, role| el.role(role))
             // A label's text is its value in AccessKit, so screen readers (and
@@ -469,8 +474,9 @@ fn drag_handlers(
     )
 }
 
-/// A straight line from `x1`,`y1` to `x2`,`y2`, in pixels from the parent's
-/// top left; `stroke-<color>` and `stroke-width` style it.
+/// A line from `x1`,`y1` to `x2`,`y2`, in pixels from the parent's top left;
+/// with `curve`, an S-curve that leaves and enters horizontally.
+/// `stroke-<color>` and `stroke-width` style it.
 fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
     let at = |key: &str| {
         attrs
@@ -479,6 +485,7 @@ fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
             .unwrap_or(0.)
     };
     let (x1, y1, x2, y2) = (at("x1"), at("y1"), at("x2"), at("y2"));
+    let curve = attrs.contains_key("curve");
     let width = attrs
         .get("stroke-width")
         .and_then(|v| v.parse::<f32>().ok())
@@ -493,9 +500,16 @@ fn render_line(attrs: &BTreeMap<String, String>, theme: &Theme) -> AnyElement {
         |_, _, _| {},
         move |bounds, _, window, _| {
             let origin = bounds.origin;
+            let at = |x: f32, y: f32| origin + gpui::point(gpui::px(x), gpui::px(y));
             let mut path = gpui::PathBuilder::stroke(gpui::px(width));
-            path.move_to(origin + gpui::point(gpui::px(x1), gpui::px(y1)));
-            path.line_to(origin + gpui::point(gpui::px(x2), gpui::px(y2)));
+            path.move_to(at(x1, y1));
+            if curve {
+                // Leaves and enters horizontally, as wires between ports do.
+                let bend = ((x2 - x1).abs() / 2.).max(40.);
+                path.cubic_bezier_to(at(x2, y2), at(x1 + bend, y1), at(x2 - bend, y2));
+            } else {
+                path.line_to(at(x2, y2));
+            }
             if let Ok(path) = path.build() {
                 window.paint_path(path, color);
             }
@@ -623,6 +637,16 @@ pub struct Root {
 }
 
 impl Root {
+    /// Shows `frame`. When its theme tokens changed, gpui-kit's theme takes
+    /// them too, so native inputs and checkboxes match the app's colours.
+    pub fn show(&mut self, frame: Frame, cx: &mut gpui::Context<Self>) {
+        if frame.theme != self.frame.theme {
+            apply_theme(&frame.theme, cx);
+        }
+        self.frame = frame;
+        cx.notify();
+    }
+
     pub fn new(window: u32, frame: Frame) -> Self {
         Self {
             window,
@@ -741,6 +765,58 @@ impl Root {
             self.changed(form.as_ref(), None, &name, value, cx);
         }
     }
+}
+
+/// Gives gpui-kit's theme the app's tokens, as ixtable brands it: into both
+/// theme configs, then re-resolved with `Theme::change`, so components that
+/// read derived colours (a checkbox's fill) take them too. Tokens the app
+/// does not define keep gpui-kit's own colours.
+fn apply_theme(tokens: &Theme, cx: &mut gpui::App) {
+    use gpui_kit::component::{Theme as KitTheme, ThemeConfig};
+    use std::rc::Rc;
+
+    let brand = |config: &ThemeConfig| {
+        let mut config = config.clone();
+        let colors = &mut config.colors;
+        let token = |name: &str| tokens.get(name).map(|v| SharedString::from(v.clone()));
+        let set = |field: &mut Option<SharedString>, names: &[&str]| {
+            if let Some(value) = names.iter().find_map(|name| token(name)) {
+                *field = Some(value);
+            }
+        };
+        set(&mut colors.background, &["background"]);
+        set(&mut colors.popover, &["background"]);
+        set(&mut colors.foreground, &["foreground"]);
+        set(&mut colors.popover_foreground, &["foreground"]);
+        set(&mut colors.caret, &["foreground"]);
+        set(&mut colors.muted, &["muted"]);
+        set(&mut colors.muted_foreground, &["muted-foreground"]);
+        set(&mut colors.border, &["border"]);
+        set(&mut colors.input, &["input", "border"]);
+        set(&mut colors.primary, &["primary"]);
+        set(&mut colors.primary_hover, &["primary-hover", "primary"]);
+        set(&mut colors.primary_active, &["primary-active", "primary"]);
+        set(&mut colors.primary_foreground, &["primary-foreground"]);
+        set(&mut colors.ring, &["ring", "primary"]);
+        set(&mut colors.list_active_border, &["primary"]);
+        set(&mut colors.secondary, &["secondary"]);
+        set(&mut colors.secondary_foreground, &["secondary-foreground"]);
+        set(&mut colors.accent, &["accent"]);
+        set(&mut colors.accent_foreground, &["accent-foreground"]);
+        set(&mut colors.link, &["link"]);
+        set(&mut colors.success, &["success"]);
+        set(&mut colors.warning, &["warning"]);
+        set(&mut colors.danger, &["danger"]);
+        Rc::new(config)
+    };
+
+    KitTheme::update(cx, |theme| {
+        theme.light_theme = brand(&theme.light_theme);
+        theme.dark_theme = brand(&theme.dark_theme);
+    });
+    let mode = KitTheme::global(cx).mode;
+    KitTheme::change(mode, None, cx);
+    cx.refresh_windows();
 }
 
 impl gpui::Render for Root {

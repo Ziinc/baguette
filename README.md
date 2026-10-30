@@ -73,11 +73,11 @@ Templates use HTML's vocabulary where GPUI can draw it:
 
 | Write | Get |
 | --- | --- |
-| `<div>`, `<text>`, `<button>` and Tailwind-style classes | flex layout, colours (theme tokens or `[#hex]`), spacing, `relative`/`absolute` with `left-[Npx]`, `top-*`, `hover:`/`active:`/`disabled:` |
+| `<div>`, `<text>`, `<button>` and Tailwind-style classes | flex layout, colours (theme tokens, `[#hex]`, `token/12` alpha), spacing, `max-w-*`/`min-h-*`, `relative`/`absolute` with `left-[Npx]`, `top-*`, `overflow-y-scroll`, `hover:`/`active:`/`disabled:` |
 | `<input name value placeholder>` (`type="password"` masks) | a native text input (gpui-kit's) |
 | `<input type="checkbox" checked>` | a native checkbox |
 | `<form phx-submit phx-change>` | Enter in an input, or a `<button type="submit">`, submits it |
-| `<line x1 y1 x2 y2 class="stroke-…">` | a straight line in the parent's coordinates |
+| `<line x1 y1 x2 y2 class="stroke-…">`, `curve` | a straight line, or an S-curve, in the parent's coordinates |
 | `<ul>`/`<li>`, `<h1>`–`<h6>`, `<a>`, `<nav>`, `<main>`, …, or `role="…"`, `aria-label`, `aria-checked` | the accessibility role and name screen readers and tests find |
 
 Events arrive in `handle_event(event, values, assigns)`, shaped as in Phoenix:
@@ -88,6 +88,11 @@ Events arrive in `handle_event(event, values, assigns)`, shaped as in Phoenix:
 | `phx-drag` | `phx-value-*` plus `"dx"`, `"dy"`: how far it was dragged, sent on release |
 | `phx-change` on an input or its form | the form's named values (or `%{name => text}`), plus `"_target"` |
 | `phx-submit` on a form | every named value in the form; checked checkboxes are `"on"` |
+
+The theme's tokens also style the native inputs and checkboxes (gpui-kit's
+theme): `primary`, `primary-foreground`, `ring`, `border`, `input`,
+`background`, `foreground`, `muted`, `muted-foreground`, `accent`, `link`,
+`success`, `warning`, `danger`.
 
 Typed text stands until the view renders a different `value`, so to clear an
 input after submitting, track it with `phx-change` and reset it.

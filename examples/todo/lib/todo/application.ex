@@ -4,6 +4,6 @@ defmodule Todo.Application do
 
   @impl true
   def start(_type, _args) do
-    Supervisor.start_link([Todo.View], strategy: :one_for_one, name: Todo.Supervisor)
+    Supervisor.start_link([{Todo.View, theme: Todo.Theme}], strategy: :one_for_one, name: Todo.Supervisor)
   end
 end
