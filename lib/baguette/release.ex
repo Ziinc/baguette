@@ -14,6 +14,9 @@ defmodule Baguette.Release do
 
       my_app: [steps: [...], baguette: [host_features: ["some_feature"]]]
 
+  `BAGUETTE_HOST_FEATURES` (comma separated) adds more for one build, such as
+  `playwright` for the end-to-end tests.
+
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
   The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
@@ -31,6 +34,16 @@ defmodule Baguette.Release do
     "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
   }
 
+  @doc "The host's Cargo features: the release option plus `BAGUETTE_HOST_FEATURES`."
+  @spec host_features(keyword() | map()) :: [String.t()]
+  def host_features(options) do
+    env = String.split(System.get_env("BAGUETTE_HOST_FEATURES", ""), ",", trim: true)
+
+    Enum.uniq(
+      (get_in(options, [:baguette, :host_features]) || []) ++ Enum.map(env, &String.trim/1)
+    )
+  end
+
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
@@ -39,7 +52,7 @@ defmodule Baguette.Release do
   defp package_desktop(release) do
     liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
-    features = get_in(release.options, [:baguette, :host_features]) || []
+    features = host_features(release.options)
     target_dir = target_dir(native, features)
 
     Mix.shell().info([:green, "* building ", :reset, "baguette_host"])
@@ -99,7 +112,7 @@ defmodule Baguette.Release do
 
   defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
-    features = options[:host_features] || []
+    features = host_features(release.options)
     target_dir = target_dir(native, features)
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
@@ -259,7 +272,7 @@ defmodule Baguette.Release do
       File.cp!(nif, Path.join(jni, "libbaguette_nif.so"))
     end
 
-    features = options[:host_features] || []
+    features = host_features(release.options)
 
     run!(
       host,
