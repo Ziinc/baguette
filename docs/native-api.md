@@ -120,6 +120,14 @@ tests both read it, so the two sides can't drift apart.
   rest of the template. Rows are `row-height` px tall (default 24) until
   they arrive; GPUI then measures them from the first row the host has.
   `Baguette.Test.show_rows/3` scrolls headlessly.
+- **Tree patches** (step 4). After a window's first frame, `Baguette.Host`
+  sends `Baguette.Patch.diff/2` of the last frame and the new one:
+  `replace`, `attrs` and `splice` operations addressed by child-index path,
+  with equal leading and trailing children kept and a changed `id` treated
+  as a new element. `patch.rs` applies them. A patch that doesn't fit makes
+  the host send `resync`, and gets the whole frame. A new theme sends the
+  whole frame too. `test/fixtures/patches.json` holds the cases both sides
+  are tested against.
 
 ## Next, in order
 

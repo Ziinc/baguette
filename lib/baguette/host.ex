@@ -10,6 +10,9 @@ defmodule Baguette.Host do
   Without a host (`mix test`, `iex -S mix`), the host is *headless*: renders
   are kept in memory, so `Baguette.Test` can read them and dispatch events.
 
+  A window's first frame goes to the native host whole; later ones go as
+  patches against the last (`Baguette.Patch`), unless the theme changed.
+  When the host can't apply a patch it asks for the whole frame again.
   """
   use GenServer
   require Logger
@@ -93,6 +96,19 @@ defmodule Baguette.Host do
     end
   end
 
+  @doc false
+  # What goes over the wire for `frame`, given the last frame sent.
+  def wire(sent, frame) do
+    if sent && sent["theme"] == frame["theme"] do
+      %{
+        "patch" => Baguette.Patch.diff(sent["root"], frame["root"]),
+        "lists" => frame["lists"] || %{}
+      }
+    else
+      frame
+    end
+  end
+
   @impl true
   def handle_call(:native?, _from, state), do: {:reply, state.native, state}
 
@@ -120,7 +136,7 @@ defmodule Baguette.Host do
 
   @impl true
   def handle_cast({:render, window, frame}, state) do
-    if state.native, do: send_native(window, frame)
+    if state.native, do: send_native(window, wire(state.frames[window], frame))
     state = put_in(state.frames[window], frame)
     # A frame's rows replace every row the host had: the rest are stale.
     rows = Map.new(frame["lists"] || %{}, fn {id, segment} -> {id, indexed(segment)} end)
@@ -143,7 +159,15 @@ defmodule Baguette.Host do
 
   @impl true
   def handle_info({:baguette_event, json}, state) do
-    route(:json.decode(json), state)
+    case :json.decode(json) do
+      # The host couldn't apply a patch: it gets the whole frame.
+      %{"type" => "resync", "window" => window} ->
+        if frame = state.frames[window], do: send_native(window, frame)
+
+      event ->
+        route(event, state)
+    end
+
     {:noreply, state}
   end
 
