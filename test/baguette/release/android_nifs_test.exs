@@ -1,5 +1,6 @@
 defmodule Baguette.Release.AndroidNifsTest do
-  use ExUnit.Case, async: true
+  # Not async: one test changes the working directory.
+  use ExUnit.Case, async: false
   alias Baguette.Release.AndroidNifs
 
   @triple "x86_64-linux-android"
@@ -15,7 +16,14 @@ defmodule Baguette.Release.AndroidNifsTest do
 
     # A precompiled Rustler NIF, an elixir_make NIF, Baguette's own, and an
     # app with none.
-    write.(Path.join(lib, "explorer-0.13.0/priv/native/libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so"), "elf")
+    write.(
+      Path.join(
+        lib,
+        "explorer-0.13.0/priv/native/libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so"
+      ),
+      "elf"
+    )
+
     write.(Path.join(lib, "exqlite-0.43.0/priv/sqlite3_nif.so"), "elf")
     write.(Path.join(lib, "baguette-0.1.0/priv/native/baguette_nif.so"), "elf")
     write.(Path.join(lib, "jason-1.4.0/ebin/jason.app"), "")
@@ -31,7 +39,12 @@ defmodule Baguette.Release.AndroidNifsTest do
     """)
 
     write.(Path.join(deps, "explorer/native/explorer/rust-toolchain.toml"), "[toolchain]\n")
-    write.(Path.join(deps, "explorer/native/other/Cargo.toml"), "[package]\nname = \"other-crate\"\n")
+
+    write.(
+      Path.join(deps, "explorer/native/other/Cargo.toml"),
+      "[package]\nname = \"other-crate\"\n"
+    )
+
     write.(Path.join(deps, "exqlite/Makefile"), "all:\n")
 
     opts = [
@@ -63,8 +76,10 @@ defmodule Baguette.Release.AndroidNifsTest do
   test "names: lib<stem>.so in the APK, and the Rust library a file comes from" do
     assert AndroidNifs.jni_name("priv/sqlite3_nif.so") == "libsqlite3_nif.so"
     assert AndroidNifs.jni_name("priv/native/libfoo.so") == "liblibfoo.so"
+
     assert AndroidNifs.lib_name("libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so") ==
              "explorer"
+
     assert AndroidNifs.lib_name("priv/native/libixpipe_sqlite.so") == "ixpipe_sqlite"
   end
 
@@ -122,6 +137,17 @@ defmodule Baguette.Release.AndroidNifsTest do
     assert List.last(args) == "--no-default-features"
     assert {"rustup", ["target", "add", @triple]} in build.commands
     assert {"K", "v"} in build.env
+  end
+
+  test "relative dep paths are expanded", ctx do
+    File.cd!(ctx.tmp_dir, fn ->
+      opts = Keyword.put(ctx.opts, :deps, %{"explorer" => "deps/explorer"})
+      nifs = Enum.filter(AndroidNifs.find(ctx.lib), &(&1.app == "explorer"))
+      [build] = AndroidNifs.plan(nifs, @triple, opts)
+      assert build.cd == Path.join(ctx.deps, "explorer/native/explorer")
+      {"cargo", args} = List.last(build.commands)
+      assert List.last(args) == Path.join(build.cd, "Cargo.toml")
+    end)
   end
 
   test "a dep with no known build system is an error", ctx do

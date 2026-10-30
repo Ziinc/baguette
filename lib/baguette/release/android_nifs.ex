@@ -105,6 +105,7 @@ defmodule Baguette.Release.AndroidNifs do
         override = Map.get(overrides, app, []),
         override != false do
       dir = Map.get(opts[:deps], app) || raise ArgumentError, "no source for #{app}'s NIF"
+      dir = Path.expand(dir)
       cache = Path.join([opts[:out], triple, "#{app}-#{nif.vsn}"])
       build = plan_one(nif, dir, triple, cache, opts)
 
@@ -242,7 +243,10 @@ defmodule Baguette.Release.AndroidNifs do
   # The crate's library name: `[lib] name`, else the package name.
   defp crate_name(crate) do
     toml = File.read!(Path.join(crate, "Cargo.toml"))
-    section = fn name -> Regex.run(~r/^\[#{name}\]\s*\n(?:(?!\[).*\n)*?name\s*=\s*"([^"]+)"/m, toml) end
+
+    section = fn name ->
+      Regex.run(~r/^\[#{name}\]\s*\n(?:(?!\[).*\n)*?name\s*=\s*"([^"]+)"/m, toml)
+    end
 
     case section.("lib") || section.("package") do
       [_, name] -> String.replace(name, "-", "_")
