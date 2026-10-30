@@ -1,0 +1,234 @@
+//! Native components registered with the host, and the manifest Elixir
+//! generates function components from (`Baguette.Components`).
+//!
+//! A component set is a list of [`Component`]s: a tag, the attributes and
+//! events it accepts, and a function that renders it from [`Props`]. Sets
+//! are compiled in by Cargo features and listed in [`sets`]; the renderer
+//! looks a tag up here before its built-in elements. `baguette_host
+//! --manifest` prints every registered component as JSON.
+
+use std::collections::BTreeMap;
+
+use serde_json::{Value, json};
+use tauri_plugin_gpui::gpui::{self, AnyElement};
+
+/// Bumped whenever the manifest's shape changes.
+pub const MANIFEST_VERSION: u32 = 1;
+
+/// What an attribute holds. Values arrive from Elixir as strings.
+#[derive(Clone, Copy, Debug)]
+pub enum AttrType {
+    /// On when present (and not `"false"`).
+    Boolean,
+    Number,
+    String,
+    /// One of the listed strings.
+    Enum(&'static [&'static str]),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct Attr {
+    pub name: &'static str,
+    pub ty: AttrType,
+    pub required: bool,
+    pub doc: &'static str,
+}
+
+/// What a component renders from: its attributes, its rendered children and
+/// where it is (for element ids and events).
+pub struct Props<'a> {
+    pub window: u32,
+    pub path: &'a str,
+    pub attrs: &'a BTreeMap<String, String>,
+    pub children: Vec<AnyElement>,
+}
+
+impl Props<'_> {
+    pub fn get(&self, name: &str) -> Option<&str> {
+        self.attrs.get(name).map(String::as_str)
+    }
+
+    /// A boolean attribute: on when present, unless it is `"false"`.
+    pub fn flag(&self, name: &str) -> bool {
+        self.get(name).is_some_and(|value| value != "false")
+    }
+
+    pub fn number(&self, name: &str) -> Option<f32> {
+        self.get(name)?.parse().ok()
+    }
+
+    /// Sends the element's `phx-click` (with its `phx-value-*`) when clicked.
+    pub fn on_click(
+        &self,
+    ) -> Option<impl Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App) + 'static> {
+        crate::view::click_handler(self.window, self.attrs)
+    }
+}
+
+pub type Render = fn(Props, &mut gpui::Window, &mut gpui::App) -> AnyElement;
+
+pub struct Component {
+    pub tag: &'static str,
+    pub doc: &'static str,
+    pub attrs: &'static [Attr],
+    /// The `phx-*` events it sends, without the prefix (`click`).
+    pub events: &'static [&'static str],
+    /// Whether it renders the children it is given.
+    pub children: bool,
+    pub render: Render,
+}
+
+pub struct Set {
+    pub name: &'static str,
+    pub components: &'static [Component],
+}
+
+/// The sets compiled into this host.
+pub fn sets() -> &'static [Set] {
+    &[]
+}
+
+/// The registered component for `tag`, if any.
+pub fn find(tag: &str) -> Option<&'static Component> {
+    find_in(sets(), tag)
+}
+
+fn find_in<'s>(sets: &'s [Set], tag: &str) -> Option<&'s Component> {
+    sets.iter()
+        .flat_map(|set| set.components)
+        .find(|component| component.tag == tag)
+}
+
+/// Every component in `sets`, as `Baguette.Components` reads it.
+pub fn manifest(sets: &[Set]) -> Value {
+    let components: Vec<Value> = sets
+        .iter()
+        .flat_map(|set| set.components)
+        .map(|component| {
+            json!({
+                "tag": component.tag,
+                "doc": component.doc,
+                "children": component.children,
+                "attrs": component.attrs.iter().map(attr).collect::<Vec<_>>(),
+                "events": component.events,
+            })
+        })
+        .collect();
+    json!({ "version": MANIFEST_VERSION, "components": components })
+}
+
+fn attr(attr: &Attr) -> Value {
+    let mut value = json!({
+        "name": attr.name,
+        "required": attr.required,
+        "doc": attr.doc,
+    });
+    let ty = match attr.ty {
+        AttrType::Boolean => "boolean",
+        AttrType::Number => "number",
+        AttrType::String => "string",
+        AttrType::Enum(values) => {
+            value["values"] = json!(values);
+            "enum"
+        }
+    };
+    value["type"] = json!(ty);
+    value
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri_plugin_gpui::gpui::{IntoElement, div};
+
+    fn blank(_: Props, _: &mut gpui::Window, _: &mut gpui::App) -> AnyElement {
+        div().into_any_element()
+    }
+
+    const KIT: &[Set] = &[Set {
+        name: "kit",
+        components: &[
+            Component {
+                tag: "kit-badge",
+                doc: "A short status label.",
+                attrs: &[
+                    Attr {
+                        name: "variant",
+                        ty: AttrType::Enum(&["primary", "danger"]),
+                        required: false,
+                        doc: "Its color.",
+                    },
+                    Attr {
+                        name: "pill",
+                        ty: AttrType::Boolean,
+                        required: false,
+                        doc: "Fully rounded ends.",
+                    },
+                ],
+                events: &[],
+                children: true,
+                render: blank,
+            },
+            Component {
+                tag: "kit-progress-bar",
+                doc: "How far along something is.",
+                attrs: &[
+                    Attr {
+                        name: "value",
+                        ty: AttrType::Number,
+                        required: true,
+                        doc: "0 to 100.",
+                    },
+                    Attr {
+                        name: "label",
+                        ty: AttrType::String,
+                        required: false,
+                        doc: "Text on the bar.",
+                    },
+                ],
+                events: &["click"],
+                children: false,
+                render: blank,
+            },
+        ],
+    }];
+
+    #[test]
+    fn finds_components_by_tag() {
+        assert_eq!(find_in(KIT, "kit-badge").map(|c| c.tag), Some("kit-badge"));
+        assert!(find_in(KIT, "div").is_none());
+    }
+
+    // The same manifest as Elixir's fixture (test/fixtures/components.json),
+    // so the two sides agree on its shape.
+    #[test]
+    fn writes_the_manifest_elixir_reads() {
+        let fixture: Value =
+            serde_json::from_str(include_str!("../../../test/fixtures/components.json")).unwrap();
+        assert_eq!(manifest(KIT), fixture);
+    }
+
+    #[test]
+    fn reads_attributes() {
+        let attrs: BTreeMap<String, String> = [
+            ("pill", ""),
+            ("subtle", "false"),
+            ("value", "40"),
+            ("variant", "danger"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect();
+        let props = Props {
+            window: 0,
+            path: "0",
+            attrs: &attrs,
+            children: vec![],
+        };
+        assert!(props.flag("pill"));
+        assert!(!props.flag("subtle"));
+        assert!(!props.flag("missing"));
+        assert_eq!(props.number("value"), Some(40.0));
+        assert_eq!(props.get("variant"), Some("danger"));
+    }
+}

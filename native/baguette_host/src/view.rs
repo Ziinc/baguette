@@ -84,6 +84,13 @@ impl Renderer<'_, '_> {
             }
             #[cfg(not(feature = "playwright"))]
             Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
+            Node::Element {
+                tag,
+                attrs,
+                children,
+            } if crate::components::find(tag).is_some() => {
+                self.component(tag, attrs, children, path)
+            }
             Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, self.theme),
             Node::Element { tag, attrs, .. } if tag == "icon" => render_icon(attrs, self.theme),
             Node::Element { tag, attrs, .. }
@@ -255,6 +262,35 @@ impl Renderer<'_, '_> {
                 .active(move |s| style::apply(s, active.iter(), &active_theme))
                 .on_click(move |e, w, cx| on_click(e, w, cx))
         )
+    }
+
+    /// A registered native component (see `components.rs`).
+    fn component(
+        &mut self,
+        tag: &str,
+        attrs: &BTreeMap<String, String>,
+        children: &[Node],
+        path: &str,
+    ) -> AnyElement {
+        let Some(component) = crate::components::find(tag) else {
+            return gpui::Empty.into_any_element();
+        };
+        let children = if component.children {
+            children
+                .iter()
+                .enumerate()
+                .map(|(i, child)| self.render(child, &format!("{path}.{i}")))
+                .collect()
+        } else {
+            vec![]
+        };
+        let props = crate::components::Props {
+            window: self.window_id,
+            path,
+            attrs,
+            children,
+        };
+        (component.render)(props, self.window, self.cx)
     }
 
     /// The form a `<button type="submit">` without its own `phx-click`
