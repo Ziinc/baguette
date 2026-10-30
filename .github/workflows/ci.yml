@@ -100,7 +100,7 @@ jobs:
         timeout-minutes: 20
       - name: Releases with gpui-playwright, driven from ExUnit
         run: |
-          for app in counter board; do
+          for app in counter board todo; do
             (cd examples/$app && mix deps.get && \
               BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
           done

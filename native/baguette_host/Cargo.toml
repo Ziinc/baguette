@@ -16,11 +16,12 @@ tauri-build = { version = "2", features = [] }
 [features]
 # Serves the app's windows to Playwright clients (gpui-playwright) when
 # GPUI_PLAYWRIGHT is set. Test builds only: release builds leave it out.
-playwright = ["dep:gpui-playwright", "dep:gpui-kit", "gpui-playwright/painted-text"]
+playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/painted-text"]
 
 [dependencies]
 async-channel = "2"
-gpui-kit = { version = "=0.7.3", default-features = false, features = ["test-support"], optional = true }
+# Text inputs and checkboxes, and the Root that observes them for Playwright.
+gpui-kit = { version = "=0.7.3", default-features = false, features = ["component", "assets"] }
 gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", optional = true }
 baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }

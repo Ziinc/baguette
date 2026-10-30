@@ -1,11 +1,17 @@
 //! The JSON view tree Elixir sends, and its rendering into GPUI elements.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, HashSet};
 
+use gpui_kit::component::{
+    checkbox::Checkbox,
+    input::{Input, InputEvent, InputState},
+};
 use serde::Deserialize;
+use serde_json::{Map, Value, json};
 use tauri_plugin_gpui::gpui::{
-    self, AnyElement, InteractiveElement, IntoElement, ParentElement, Role, SharedString,
-    StatefulInteractiveElement, Styled, prelude::FluentBuilder,
+    self, AnyElement, AppContext, Entity, InteractiveElement, IntoElement, ParentElement, Role,
+    SharedString, StatefulInteractiveElement, Styled, Subscription, Toggled,
+    prelude::FluentBuilder,
 };
 
 use crate::bridge;
@@ -49,102 +55,365 @@ macro_rules! observed {
     }};
 }
 
-pub fn render(node: &Node, path: &str, window: u32, theme: &Theme) -> AnyElement {
-    match node {
-        #[cfg(feature = "playwright")]
-        Node::Text(text) => {
-            use gpui_kit::base::TestTextExt;
-            SharedString::from(text.clone())
-                .test_text(text.clone())
-                .into_any_element()
+/// Renders one frame. Holds what rendering needs beyond the node itself:
+/// the window's id and theme, the GPUI window and the root's context (to
+/// keep inputs' state between frames), and the form being rendered.
+struct Renderer<'a, 'c> {
+    window_id: u32,
+    theme: &'a Theme,
+    window: &'a mut gpui::Window,
+    cx: &'a mut gpui::Context<'c, Root>,
+    inputs: &'a mut HashMap<String, InputSlot>,
+    checks: &'a mut HashMap<String, CheckSlot>,
+    forms: HashMap<String, FormInfo>,
+    form: Option<String>,
+    seen: HashSet<String>,
+}
+
+impl Renderer<'_, '_> {
+    fn render(&mut self, node: &Node, path: &str) -> AnyElement {
+        match node {
+            #[cfg(feature = "playwright")]
+            Node::Text(text) => {
+                use gpui_kit::base::TestTextExt;
+                SharedString::from(text.clone())
+                    .test_text(text.clone())
+                    .into_any_element()
+            }
+            #[cfg(not(feature = "playwright"))]
+            Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
+            Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, self.theme),
+            Node::Element { tag, attrs, .. }
+                if tag == "input" && attrs.get("type").map(String::as_str) == Some("checkbox") =>
+            {
+                self.checkbox(attrs, path)
+            }
+            Node::Element { tag, attrs, .. } if tag == "input" || tag == "textarea" => {
+                self.input(attrs, path)
+            }
+            Node::Element {
+                tag,
+                attrs,
+                children,
+            } if tag == "form" => {
+                self.forms.insert(
+                    path.to_owned(),
+                    FormInfo {
+                        change: attrs.get("phx-change").cloned(),
+                        submit: attrs.get("phx-submit").cloned(),
+                    },
+                );
+                let outer = self.form.replace(path.to_owned());
+                let element = self.element(tag, attrs, children, path);
+                self.form = outer;
+                element
+            }
+            Node::Element {
+                tag,
+                attrs,
+                children,
+            } => self.element(tag, attrs, children, path),
         }
-        #[cfg(not(feature = "playwright"))]
-        Node::Text(text) => SharedString::from(text.clone()).into_any_element(),
-        Node::Element { tag, attrs, .. } if tag == "line" => render_line(attrs, theme),
-        Node::Element {
-            tag,
-            attrs,
-            children,
-        } => render_element(tag, attrs, children, path, window, theme),
+    }
+
+    fn element(
+        &mut self,
+        tag: &str,
+        attrs: &BTreeMap<String, String>,
+        children: &[Node],
+        path: &str,
+    ) -> AnyElement {
+        let theme = self.theme;
+        let window = self.window_id;
+        let classes = attrs.get("class").map(String::as_str).unwrap_or("");
+        let disabled = attrs.contains_key("disabled");
+        let base = style::apply(
+            gpui::div(),
+            style::for_variant(classes, Variant::Base),
+            theme,
+        );
+        let base = if disabled {
+            style::apply(base, style::for_variant(classes, Variant::Disabled), theme)
+        } else {
+            base
+        };
+        let rendered: Vec<AnyElement> = children
+            .iter()
+            .enumerate()
+            .map(|(i, child)| self.render(child, &format!("{path}.{i}")))
+            .collect();
+
+        let role = role_of(tag, attrs);
+        let element = base
+            .id(SharedString::from(path.to_owned()))
+            .children(rendered)
+            .when_some(role, |el, role| el.role(role))
+            // A label's text is its value in AccessKit, so screen readers (and
+            // the AT-SPI end-to-end test) read what a `<text>` shows.
+            .when(tag == "text", |el| {
+                el.aria_value(SharedString::from(text_of(children)))
+            })
+            // Headings, links and list items are named by their text unless
+            // labelled, as on the web.
+            .when(
+                !attrs.contains_key("aria-label")
+                    && matches!(role, Some(Role::Heading | Role::Link | Role::ListItem)),
+                |el| el.aria_label(SharedString::from(text_of(children))),
+            )
+            .when_some(attrs.get("aria-label"), |el, label| {
+                el.aria_label(SharedString::from(label.clone()))
+            })
+            .when_some(attrs.get("aria-checked"), |el, checked| {
+                el.aria_toggled(match checked.as_str() {
+                    "true" => Toggled::True,
+                    "mixed" => Toggled::Mixed,
+                    _ => Toggled::False,
+                })
+            });
+
+        let element = match attrs.get("phx-drag").filter(|_| !disabled) {
+            Some(event) => {
+                let (up, up_out) = drag_handlers(window, path, event, attrs);
+                let key = path.to_owned();
+                element
+                    // Every element under the pointer hears the press, topmost
+                    // first: the topmost draggable claims it.
+                    .on_mouse_down(gpui::MouseButton::Left, move |e, _, cx| {
+                        DRAGS.with(|d| d.borrow_mut().insert(key.clone(), e.position));
+                        cx.stop_propagation();
+                    })
+                    .on_mouse_up(gpui::MouseButton::Left, up)
+                    .on_mouse_up_out(gpui::MouseButton::Left, up_out)
+            }
+            None => element,
+        };
+
+        let on_click: Option<Box<dyn Fn(&gpui::ClickEvent, &mut gpui::Window, &mut gpui::App)>> =
+            match (click_handler(window, attrs), self.submits(tag, attrs)) {
+                (Some(click), _) => Some(Box::new(click)),
+                (None, Some(form)) => {
+                    let root = self.cx.entity().downgrade();
+                    Some(Box::new(move |_, _, cx| {
+                        let _ = root.update(cx, |root, cx| root.submit(&form, cx));
+                    }))
+                }
+                (None, None) => None,
+            };
+        let Some(on_click) = on_click.filter(|_| !disabled) else {
+            return observed!(element);
+        };
+        #[cfg(target_os = "android")]
+        let element = element.when_some(attrs.get("aria-label"), |el, label| {
+            el.child(report_bounds(label.clone()))
+        });
+        let hover: Vec<String> = style::for_variant(classes, Variant::Hover)
+            .map(str::to_owned)
+            .collect();
+        let active: Vec<String> = style::for_variant(classes, Variant::Active)
+            .map(str::to_owned)
+            .collect();
+        let (hover_theme, active_theme) = (theme.clone(), theme.clone());
+        observed!(
+            element
+                .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
+                .active(move |s| style::apply(s, active.iter(), &active_theme))
+                .on_click(move |e, w, cx| on_click(e, w, cx))
+        )
+    }
+
+    /// The form a `<button type="submit">` without its own `phx-click`
+    /// submits: the one it is in.
+    fn submits(&self, tag: &str, attrs: &BTreeMap<String, String>) -> Option<String> {
+        (tag == "button" && attrs.get("type").map(String::as_str) == Some("submit"))
+            .then(|| self.form.clone())
+            .flatten()
+    }
+
+    /// A native text input (gpui-kit's), whose state lives in the root
+    /// between frames. Typed text stands until Elixir renders a different
+    /// `value`, as in a browser.
+    fn input(&mut self, attrs: &BTreeMap<String, String>, path: &str) -> AnyElement {
+        self.seen.insert(path.to_owned());
+        let value = attrs.get("value").cloned().unwrap_or_default();
+        let placeholder = attrs.get("placeholder").cloned().unwrap_or_default();
+        let (window, cx) = (&mut *self.window, &mut *self.cx);
+
+        let slot = self.inputs.entry(path.to_owned()).or_insert_with(|| {
+            let masked = attrs.get("type").map(String::as_str) == Some("password");
+            let state = cx.new(|cx| {
+                InputState::new(window, cx)
+                    .placeholder(placeholder.clone())
+                    .masked(masked)
+            });
+            state.update(cx, |state, cx| state.set_value(value.clone(), window, cx));
+            let key = path.to_owned();
+            let subscription = cx.subscribe_in(&state, window, move |root, _, event, _, cx| {
+                root.on_input(&key, event, cx)
+            });
+            InputSlot {
+                state,
+                rendered: value.clone(),
+                placeholder: placeholder.clone(),
+                echo: true,
+                name: None,
+                change: None,
+                form: None,
+                _subscription: subscription,
+            }
+        });
+
+        if slot.rendered != value {
+            slot.rendered = value.clone();
+            if slot.state.read(cx).value() != value.as_str() {
+                slot.echo = true;
+                slot.state
+                    .update(cx, |state, cx| state.set_value(value, window, cx));
+            }
+        }
+        if slot.placeholder != placeholder {
+            slot.placeholder = placeholder.clone();
+            slot.state.update(cx, |state, cx| {
+                state.set_placeholder(placeholder, window, cx)
+            });
+        }
+        slot.name = attrs.get("name").cloned();
+        slot.change = attrs.get("phx-change").cloned();
+        slot.form = self.form.clone();
+
+        let label = attrs
+            .get("aria-label")
+            .or(attrs.get("placeholder"))
+            .or(attrs.get("name"))
+            .cloned()
+            .unwrap_or_default();
+        let classes = attrs.get("class").map(String::as_str).unwrap_or("");
+        style::apply(
+            gpui::div(),
+            style::for_variant(classes, Variant::Base),
+            self.theme,
+        )
+        .child(
+            Input::new(&slot.state)
+                .id(SharedString::from(format!("{path}.input")))
+                .aria_label(label)
+                .disabled(attrs.contains_key("disabled")),
+        )
+        .into_any_element()
+    }
+
+    /// A native checkbox (gpui-kit's). It shows its new state at once;
+    /// Elixir's `checked` wins whenever it changes.
+    fn checkbox(&mut self, attrs: &BTreeMap<String, String>, path: &str) -> AnyElement {
+        self.seen.insert(path.to_owned());
+        let checked = attrs.contains_key("checked");
+        let slot = self.checks.entry(path.to_owned()).or_insert(CheckSlot {
+            checked,
+            rendered: checked,
+            ..CheckSlot::default()
+        });
+        if slot.rendered != checked {
+            slot.rendered = checked;
+            slot.checked = checked;
+        }
+        slot.name = attrs.get("name").cloned();
+        slot.click = attrs.get("phx-click").cloned();
+        slot.values = values_of(attrs);
+        slot.form = self.form.clone();
+
+        let root = self.cx.entity().downgrade();
+        let key = path.to_owned();
+        let label = attrs
+            .get("aria-label")
+            .or(attrs.get("name"))
+            .cloned()
+            .unwrap_or_default();
+        // gpui-kit components register themselves for Playwright.
+        Checkbox::new(SharedString::from(path.to_owned()))
+            .checked(slot.checked)
+            .accessibility_label(label)
+            .on_click(move |checked, _, cx| {
+                let _ = root.update(cx, |root, cx| root.on_check(&key, *checked, cx));
+            })
+            .into_any_element()
     }
 }
 
-fn render_element(
-    tag: &str,
-    attrs: &BTreeMap<String, String>,
-    children: &[Node],
-    path: &str,
-    window: u32,
-    theme: &Theme,
-) -> AnyElement {
-    let classes = attrs.get("class").map(String::as_str).unwrap_or("");
-    let disabled = attrs.contains_key("disabled");
-    let base = style::apply(
-        gpui::div(),
-        style::for_variant(classes, Variant::Base),
-        theme,
-    );
-    let base = if disabled {
-        style::apply(base, style::for_variant(classes, Variant::Disabled), theme)
-    } else {
-        base
-    };
-    let rendered = children
-        .iter()
-        .enumerate()
-        .map(|(i, child)| render(child, &format!("{path}.{i}"), window, theme));
-
-    let element = base
-        .id(SharedString::from(path.to_owned()))
-        .children(rendered)
-        .when(tag == "button", |el| el.role(Role::Button))
-        // A label's text is its value in AccessKit, so screen readers (and
-        // the AT-SPI end-to-end test) read what a `<text>` shows.
-        .when(tag == "text", |el| {
-            el.role(Role::Label)
-                .aria_value(SharedString::from(text_of(children)))
-        })
-        .when_some(attrs.get("aria-label"), |el, label| {
-            el.aria_label(SharedString::from(label.clone()))
-        });
-
-    let element = match attrs.get("phx-drag").filter(|_| !disabled) {
-        Some(event) => {
-            let (up, up_out) = drag_handlers(window, path, event, attrs);
-            let key = path.to_owned();
-            element
-                // Every element under the pointer hears the press, topmost
-                // first: the topmost draggable claims it.
-                .on_mouse_down(gpui::MouseButton::Left, move |e, _, cx| {
-                    DRAGS.with(|d| d.borrow_mut().insert(key.clone(), e.position));
-                    cx.stop_propagation();
-                })
-                .on_mouse_up(gpui::MouseButton::Left, up)
-                .on_mouse_up_out(gpui::MouseButton::Left, up_out)
-        }
-        None => element,
-    };
-
-    let Some(on_click) = click_handler(window, attrs).filter(|_| !disabled) else {
-        return observed!(element);
-    };
-    #[cfg(target_os = "android")]
-    let element = element.when_some(attrs.get("aria-label"), |el, label| {
-        el.child(report_bounds(label.clone()))
+/// The accessibility role of an element: its `role` attribute, or what its
+/// tag means on the web.
+fn role_of(tag: &str, attrs: &BTreeMap<String, String>) -> Option<Role> {
+    let role = attrs.get("role").map(String::as_str).unwrap_or(match tag {
+        "button" => "button",
+        "text" | "label" => "label",
+        "ul" | "ol" => "list",
+        "li" => "listitem",
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => "heading",
+        "a" => "link",
+        "img" => "img",
+        "nav" => "navigation",
+        "form" => "form",
+        "main" => "main",
+        "header" => "banner",
+        "footer" => "contentinfo",
+        "aside" => "complementary",
+        "section" => "region",
+        "article" => "article",
+        "p" => "paragraph",
+        "dialog" => "dialog",
+        "table" => "table",
+        "tr" => "row",
+        "td" | "th" => "cell",
+        "hr" => "separator",
+        _ => return None,
     });
-    let hover: Vec<String> = style::for_variant(classes, Variant::Hover)
-        .map(str::to_owned)
-        .collect();
-    let active: Vec<String> = style::for_variant(classes, Variant::Active)
-        .map(str::to_owned)
-        .collect();
-    let (hover_theme, active_theme) = (theme.clone(), theme.clone());
-    observed!(
-        element
-            .hover(move |s| style::apply(s, hover.iter(), &hover_theme))
-            .active(move |s| style::apply(s, active.iter(), &active_theme))
-            .on_click(on_click)
-    )
+    Some(match role {
+        "button" => Role::Button,
+        "checkbox" => Role::CheckBox,
+        "switch" => Role::Switch,
+        "radio" => Role::RadioButton,
+        "radiogroup" => Role::RadioGroup,
+        "textbox" => Role::TextInput,
+        "searchbox" => Role::SearchInput,
+        "combobox" => Role::ComboBox,
+        "listbox" => Role::ListBox,
+        "option" => Role::ListBoxOption,
+        "label" => Role::Label,
+        "list" => Role::List,
+        "listitem" => Role::ListItem,
+        "heading" => Role::Heading,
+        "link" => Role::Link,
+        "img" | "image" => Role::Image,
+        "navigation" => Role::Navigation,
+        "form" => Role::Form,
+        "main" => Role::Main,
+        "banner" => Role::Banner,
+        "contentinfo" => Role::ContentInfo,
+        "complementary" => Role::Complementary,
+        "region" => Role::Region,
+        "article" => Role::Article,
+        "paragraph" => Role::Paragraph,
+        "dialog" => Role::Dialog,
+        "alert" => Role::Alert,
+        "status" => Role::Status,
+        "tab" => Role::Tab,
+        "tablist" => Role::TabList,
+        "tabpanel" => Role::TabPanel,
+        "menu" => Role::Menu,
+        "menuitem" => Role::MenuItem,
+        "toolbar" => Role::Toolbar,
+        "tooltip" => Role::Tooltip,
+        "progressbar" => Role::ProgressIndicator,
+        "slider" => Role::Slider,
+        "separator" => Role::Splitter,
+        "table" => Role::Table,
+        "grid" => Role::Grid,
+        "row" => Role::Row,
+        "cell" | "gridcell" => Role::Cell,
+        "tree" => Role::Tree,
+        "treeitem" => Role::TreeItem,
+        "group" => Role::Group,
+        "search" => Role::Search,
+        _ => return None,
+    })
 }
 
 thread_local! {
@@ -311,19 +580,203 @@ pub fn text_of(nodes: &[Node]) -> String {
     parts.join(" ")
 }
 
-/// The root view of a Baguette window: whatever Elixir last rendered.
+/// A text input's state between frames.
+struct InputSlot {
+    state: Entity<InputState>,
+    /// The `value` Elixir last rendered.
+    rendered: String,
+    placeholder: String,
+    /// Set when Baguette changed the text, so that change is not sent back.
+    echo: bool,
+    name: Option<String>,
+    change: Option<String>,
+    form: Option<String>,
+    _subscription: Subscription,
+}
+
+/// A checkbox's state between frames.
+#[derive(Default)]
+struct CheckSlot {
+    checked: bool,
+    /// The `checked` Elixir last rendered.
+    rendered: bool,
+    name: Option<String>,
+    click: Option<String>,
+    values: BTreeMap<String, String>,
+    form: Option<String>,
+}
+
+#[derive(Default)]
+struct FormInfo {
+    change: Option<String>,
+    submit: Option<String>,
+}
+
+/// The root view of a Baguette window: whatever Elixir last rendered, and
+/// the state of the native inputs in it.
 pub struct Root {
     pub window: u32,
     pub frame: Frame,
+    inputs: HashMap<String, InputSlot>,
+    checks: HashMap<String, CheckSlot>,
+    forms: HashMap<String, FormInfo>,
+}
+
+impl Root {
+    pub fn new(window: u32, frame: Frame) -> Self {
+        Self {
+            window,
+            frame,
+            inputs: HashMap::new(),
+            checks: HashMap::new(),
+            forms: HashMap::new(),
+        }
+    }
+
+    fn emit(&self, kind: &str, event: &str, values: Map<String, Value>) {
+        bridge::emit(&json!({
+            "type": kind,
+            "window": self.window,
+            "event": event,
+            "values": values,
+        }));
+    }
+
+    /// Every named value in `form`: each text input's text, and "on" for
+    /// each checked checkbox, as a browser submits them.
+    fn form_values(&self, form: &str, cx: &gpui::App) -> Map<String, Value> {
+        let mut values = Map::new();
+        for slot in self.inputs.values() {
+            if let (Some(name), Some(f)) = (&slot.name, &slot.form) {
+                if f == form {
+                    let text = slot.state.read(cx).value().to_string();
+                    values.insert(name.clone(), Value::String(text));
+                }
+            }
+        }
+        for slot in self.checks.values() {
+            if let (Some(name), Some(f), true) = (&slot.name, &slot.form, slot.checked) {
+                if f == form {
+                    values.insert(name.clone(), Value::String("on".into()));
+                }
+            }
+        }
+        values
+    }
+
+    fn submit(&self, form: &str, cx: &gpui::App) {
+        if let Some(event) = self.forms.get(form).and_then(|f| f.submit.as_ref()) {
+            self.emit("submit", event, self.form_values(form, cx));
+        }
+    }
+
+    /// Sends the input's `phx-change`, or its form's, with `_target`.
+    fn changed(
+        &self,
+        form: Option<&String>,
+        own: Option<&String>,
+        name: &str,
+        value: Value,
+        cx: &gpui::App,
+    ) {
+        let form_change = form
+            .and_then(|f| self.forms.get(f))
+            .and_then(|f| f.change.as_ref());
+        let Some(event) = own.or(form_change) else {
+            return;
+        };
+        let mut values = match form {
+            Some(form) => self.form_values(form, cx),
+            None => Map::from_iter([(name.to_owned(), value)]),
+        };
+        values.insert("_target".into(), Value::String(name.to_owned()));
+        self.emit("change", event, values);
+    }
+
+    fn on_input(&mut self, path: &str, event: &InputEvent, cx: &mut gpui::Context<Self>) {
+        let Some(slot) = self.inputs.get_mut(path) else {
+            return;
+        };
+        match event {
+            InputEvent::Change => {
+                let text = slot.state.read(cx).value().to_string();
+                if std::mem::take(&mut slot.echo) && text == slot.rendered {
+                    return;
+                }
+                let (form, own) = (slot.form.clone(), slot.change.clone());
+                let name = slot.name.clone().unwrap_or_else(|| "value".into());
+                self.changed(form.as_ref(), own.as_ref(), &name, Value::String(text), cx);
+            }
+            InputEvent::PressEnter { .. } => {
+                if let Some(form) = slot.form.clone() {
+                    self.submit(&form, cx);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn on_check(&mut self, path: &str, checked: bool, cx: &mut gpui::Context<Self>) {
+        let Some(slot) = self.checks.get_mut(path) else {
+            return;
+        };
+        slot.checked = checked;
+        cx.notify();
+        let (click, form, name) = (slot.click.clone(), slot.form.clone(), slot.name.clone());
+        if let Some(event) = click {
+            let mut values: Map<String, Value> = slot
+                .values
+                .iter()
+                .map(|(k, v)| (k.clone(), Value::String(v.clone())))
+                .collect();
+            values.insert("checked".into(), Value::Bool(checked));
+            self.emit("click", &event, values);
+        }
+        if let (Some(_), Some(name)) = (&form, name) {
+            let value = if checked {
+                Value::String("on".into())
+            } else {
+                Value::Null
+            };
+            self.changed(form.as_ref(), None, &name, value, cx);
+        }
+    }
 }
 
 impl gpui::Render for Root {
-    fn render(&mut self, _: &mut gpui::Window, _: &mut gpui::Context<Self>) -> impl IntoElement {
-        let content = self
-            .frame
-            .root
-            .as_ref()
-            .map(|node| render(node, "root", self.window, &self.frame.theme));
+    fn render(
+        &mut self,
+        window: &mut gpui::Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> impl IntoElement {
+        let frame = std::mem::take(&mut self.frame);
+        let mut inputs = std::mem::take(&mut self.inputs);
+        let mut checks = std::mem::take(&mut self.checks);
+        let (content, forms, seen) = {
+            let mut renderer = Renderer {
+                window_id: self.window,
+                theme: &frame.theme,
+                window,
+                cx,
+                inputs: &mut inputs,
+                checks: &mut checks,
+                forms: HashMap::new(),
+                form: None,
+                seen: HashSet::new(),
+            };
+            let content = frame
+                .root
+                .as_ref()
+                .map(|node| renderer.render(node, "root"));
+            (content, renderer.forms, renderer.seen)
+        };
+        // Inputs no longer rendered drop their state.
+        inputs.retain(|path, _| seen.contains(path));
+        checks.retain(|path, _| seen.contains(path));
+        self.inputs = inputs;
+        self.checks = checks;
+        self.forms = forms;
+        self.frame = frame;
         gpui::div().size_full().children(content)
     }
 }

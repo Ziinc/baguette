@@ -21,6 +21,7 @@ only for platform-specific NIFs.
 | [`examples/broadway`](examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
 | [`examples/counter`](examples/counter) | The smallest app: a count held in a GenServer. |
 | [`examples/board`](examples/board) | A card dragged around a board (`phx-drag`, `absolute`, `<line>`). |
+| [`examples/todo`](examples/todo) | A to-do list: a form with a native text input, checkboxes, list roles. |
 
 Each one is a `mix release`:
 
@@ -65,6 +66,64 @@ test "increments" do
   assert Baguette.Test.text(0) =~ "Count: 1"
 end
 ```
+
+## Elements and events
+
+Templates use HTML's vocabulary where GPUI can draw it:
+
+| Write | Get |
+| --- | --- |
+| `<div>`, `<text>`, `<button>` and Tailwind-style classes | flex layout, colours (theme tokens or `[#hex]`), spacing, `relative`/`absolute` with `left-[Npx]`, `top-*`, `hover:`/`active:`/`disabled:` |
+| `<input name value placeholder>` (`type="password"` masks) | a native text input (gpui-kit's) |
+| `<input type="checkbox" checked>` | a native checkbox |
+| `<form phx-submit phx-change>` | Enter in an input, or a `<button type="submit">`, submits it |
+| `<line x1 y1 x2 y2 class="stroke-…">` | a straight line in the parent's coordinates |
+| `<ul>`/`<li>`, `<h1>`–`<h6>`, `<a>`, `<nav>`, `<main>`, …, or `role="…"`, `aria-label`, `aria-checked` | the accessibility role and name screen readers and tests find |
+
+Events arrive in `handle_event(event, values, assigns)`, shaped as in Phoenix:
+
+| Binding | Values |
+| --- | --- |
+| `phx-click` | the element's `phx-value-*`; a checkbox adds `"checked"` (its new state) |
+| `phx-drag` | `phx-value-*` plus `"dx"`, `"dy"`: how far it was dragged, sent on release |
+| `phx-change` on an input or its form | the form's named values (or `%{name => text}`), plus `"_target"` |
+| `phx-submit` on a form | every named value in the form; checked checkboxes are `"on"` |
+
+Typed text stands until the view renders a different `value`, so to clear an
+input after submitting, track it with `phx-change` and reset it.
+
+## Testing
+
+`Baguette.Test` drives views headlessly with the same events the host sends:
+`click/2`, `drag/4`, `fill/3`, `submit/2`, `value/2`, `text/1`, `tree/1`.
+
+`Baguette.Playwright` drives a real release through
+[gpui-playwright](https://github.com/ziinc/gpui-playwright), from ExUnit
+(optional deps `playwright_ex` and `websockex`). Build with
+`BAGUETTE_HOST_FEATURES=playwright mix release`, then under a display
+(`xvfb-run -a` on Linux):
+
+```elixir
+app = Baguette.Playwright.start_app!("_build/prod/rel/todo/bin/todo_app")
+on_exit(fn -> Baguette.Playwright.stop_app(app) end)
+page = Baguette.Playwright.connect!(app)
+
+Baguette.Playwright.fill(page, "Title", "Buy milk")
+Baguette.Playwright.press(page, "Title", "Enter")
+Baguette.Playwright.check(page, "Buy milk")
+assert Baguette.Playwright.count(page, role: "listitem") == 1
+assert :ok = Baguette.Playwright.await_text(page, "0 of 1 left")
+```
+
+Actions: `click`, `fill`, `clear`, `press`, `type`, `check`, `uncheck`,
+`focus`, `hover`, `drag`, `resize`. Reads: `input_value`, `checked?`,
+`visible?`, `enabled?`, `text_content`, `attribute`, `count`,
+`bounding_box`, `aria_snapshot`, `buttons`, `screenshot`. Waits:
+`await_text`, `await`. App: `start_app!` (any free port, found through the
+endpoint file), `stop_app`, `log`, `alive?`. A string target names the role
+the action implies (a button to click, a textbox to fill); a keyword list
+(`role:`, `name:`, `text:`, `label:`, `placeholder:`, `test_id:`, `nth:`,
+`exact:`) builds any locator.
 
 ## How it fits together
 
