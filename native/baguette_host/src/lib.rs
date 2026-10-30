@@ -17,6 +17,7 @@ mod platform;
 #[cfg(feature = "playwright")]
 mod playwright;
 mod style;
+mod style_gen;
 mod view;
 mod windows;
 

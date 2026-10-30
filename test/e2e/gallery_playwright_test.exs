@@ -87,6 +87,14 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert length(Enum.uniq(samples)) > 1
   end
 
+  test "classes generated from Styled's methods apply (w-1/2)", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Palette closed")
+    %{"width" => track} = Playwright.bounding_box(page, label: "Track")
+    %{"width" => half} = Playwright.bounding_box(page, label: "Half")
+    assert track == 256
+    assert half == track / 2
+  end
+
   # The colour at `x`, `y` of a PNG, through ImageMagick.
   defp pixel(png, x, y) do
     path = Path.join(System.tmp_dir!(), "gallery-#{System.unique_integer([:positive])}.png")

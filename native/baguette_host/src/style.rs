@@ -181,7 +181,18 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
             };
         }
     }
-    unknown(s, class)
+    generated(s, class)
+}
+
+/// A class named for one of `Styled`'s methods (`style_gen.rs`).
+fn generated<S: Styled>(mut s: S, class: &str) -> S {
+    match crate::style_gen::refinement(class) {
+        Some(refinement) => {
+            tauri_plugin_gpui::gpui::Refineable::refine(s.style(), &refinement);
+            s
+        }
+        None => unknown(s, class),
+    }
 }
 
 /// Tailwind's spacing scale in pixels: `4` is 16px, `px` is 1px, and
@@ -315,6 +326,34 @@ mod tests {
             &Theme::new(),
         );
         assert!(reported("overflow-sideways"));
+    }
+
+    // `style_gen.rs`, from `mix baguette.styles`.
+    #[test]
+    fn styled_methods_are_classes_too() {
+        use crate::style_gen::refinement;
+        for class in [
+            "w-1/2",
+            "-mt-2",
+            "p-0.5",
+            "rounded-t-lg",
+            "cursor-grab",
+            "gap-x-3",
+        ] {
+            assert!(refinement(class).is_some(), "{class}");
+        }
+        // Outside the stable categories, or not a method without arguments.
+        for class in ["debug", "visible", "bg", "w"] {
+            assert!(refinement(class).is_none(), "{class}");
+        }
+        for class in ["rounded-tl-xl", "inset-0", "whitespace-nowrap"] {
+            apply(
+                tauri_plugin_gpui::gpui::div(),
+                [class].into_iter(),
+                &Theme::new(),
+            );
+            assert!(!reported(class), "{class} reported as unsupported");
+        }
     }
 
     #[test]

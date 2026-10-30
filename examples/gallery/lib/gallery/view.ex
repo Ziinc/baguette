@@ -65,6 +65,9 @@ defmodule Gallery.View do
         </div>
         <div aria-label="Pulse" animate="pulse" duration="900" class="w-8 h-8 bg-[#0000ff]" />
         <icon name="loader" animate="spin" class="size-6" />
+        <div aria-label="Track" class="w-64 h-2 bg-muted rounded-full">
+          <div aria-label="Half" class="w-1/2 h-full bg-primary rounded-l-full" />
+        </div>
       </div>
       <list id="jobs" rows={10_000} phx-rows="jobs" class="h-40 w-64 border border-border" />
     </div>
