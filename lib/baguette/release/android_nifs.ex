@@ -313,6 +313,7 @@ defmodule Baguette.Release.AndroidNifs do
          {:ok, patched} <- patch_nif_filler(filler) do
       copy = Path.join([build.cache, "patches", "rustler-#{vsn}"])
       File.rm_rf!(copy)
+      File.mkdir_p!(Path.dirname(copy))
       File.cp_r!(source, copy)
       File.write!(Path.join(copy, "src/sys/nif_filler.rs"), patched)
       Mix.shell().info([:green, "* patching ", :reset, "rustler #{vsn} for Android"])

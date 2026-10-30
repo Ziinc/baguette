@@ -181,6 +181,53 @@ defmodule Baguette.Release.AndroidNifsTest do
     assert File.read!(Path.join(jni, "libsqlite3_nif.so")) == "android elf"
   end
 
+  test "build!/3 patches the crate's Rustler from the cargo registry", ctx do
+    [rustler, _] = AndroidNifs.plan(AndroidNifs.find(ctx.lib), @triple, ctx.opts)
+    cargo_home = Path.join(ctx.tmp_dir, "cargo")
+    source = Path.join(cargo_home, "registry/src/index.crates.io-x/rustler-0.36.2")
+    File.mkdir_p!(Path.join(source, "src/sys"))
+
+    File.write!(
+      Path.join(source, "src/sys/nif_filler.rs"),
+      "let lib = unsafe { Library::open(None::<&OsStr>, RTLD_NOW | RTLD_GLOBAL) };"
+    )
+
+    lock = Path.join(rustler.cd, "Cargo.lock")
+    File.write!(lock, ~s([[package]]\nname = "rustler"\nversion = "0.36.2"\n))
+    jni = Path.join(ctx.tmp_dir, "jni")
+    File.mkdir_p!(jni)
+    me = self()
+
+    run = fn _dir, cmd, args, _env ->
+      send(me, {:ran, cmd, args})
+
+      for {built, _} <- rustler.outputs do
+        File.mkdir_p!(Path.dirname(built))
+        File.write!(built, "android elf")
+      end
+
+      :ok
+    end
+
+    previous = System.get_env("CARGO_HOME")
+    System.put_env("CARGO_HOME", cargo_home)
+
+    try do
+      assert AndroidNifs.build!([rustler], jni, run) == :ok
+    after
+      if previous,
+        do: System.put_env("CARGO_HOME", previous),
+        else: System.delete_env("CARGO_HOME")
+    end
+
+    copy = Path.join([rustler.cache, "patches", "rustler-0.36.2"])
+    assert File.read!(Path.join(copy, "src/sys/nif_filler.rs")) =~ "RUSTLER_BEAM_LIBRARY_PATH"
+    assert_received {:ran, "cargo", ["fetch" | _]}
+    assert_received {:ran, "cargo", ["build" | args]}
+    assert ~s(patch.crates-io.rustler.path="#{copy}") in args
+    assert File.read!(lock) =~ ~s(version = "0.36.2")
+  end
+
   test "patch_nif_filler/1 makes Rustler before 0.38 open RUSTLER_BEAM_LIBRARY_PATH" do
     old = "let lib = unsafe { Library::open(None::<&OsStr>, RTLD_NOW | RTLD_GLOBAL) };"
     assert {:ok, patched} = AndroidNifs.patch_nif_filler(old)
