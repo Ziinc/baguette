@@ -148,9 +148,18 @@ impl Renderer<'_, '_> {
         let element = base
             .id(SharedString::from(path.to_owned()))
             // Scrolling needs the element's id, so it is not a plain style.
-            .when(scroll("overflow-scroll"), |el| el.overflow_scroll())
-            .when(scroll("overflow-x-scroll"), |el| el.overflow_x_scroll())
-            .when(scroll("overflow-y-scroll"), |el| el.overflow_y_scroll())
+            // `-auto` scrolls too: GPUI shows no scrollbar either way.
+            .when(scroll("overflow-scroll") || scroll("overflow-auto"), |el| {
+                el.overflow_scroll()
+            })
+            .when(
+                scroll("overflow-x-scroll") || scroll("overflow-x-auto"),
+                |el| el.overflow_x_scroll(),
+            )
+            .when(
+                scroll("overflow-y-scroll") || scroll("overflow-y-auto"),
+                |el| el.overflow_y_scroll(),
+            )
             .children(rendered)
             .when_some(role, |el, role| el.role(role))
             // A label's text is its value in AccessKit, so screen readers (and
