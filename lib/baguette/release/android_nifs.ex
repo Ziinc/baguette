@@ -7,8 +7,8 @@ defmodule Baguette.Release.AndroidNifs do
   Rustler NIF in `priv/native/<stem>.so` (precompiled or not) and an
   `elixir_make` NIF wherever its Makefile puts it, usually `priv/<stem>.so`.
   For every such file this module builds the dependency again for the
-  Android ABI and returns it as `lib<stem>.so`, the name the host links the
-  file to on first launch.
+  Android ABI and returns it as `lib<name>.so` (`jni_name/1`), the name the
+  host links the file to on first launch.
 
     * A dependency with a Cargo crate under `native/` is a Rustler NIF:
       `cargo build --release --target <triple>` in the crate (so its
@@ -207,9 +207,15 @@ defmodule Baguette.Release.AndroidNifs do
 
   defp clang(opts, triple), do: Path.join(opts[:ndk_bin], "#{triple}#{opts[:api] || 24}-clang")
 
-  @doc "The name a NIF file ships under in the APK: `lib<stem>.so`."
+  @doc """
+  The name a NIF file ships under in the APK: `lib<name>.so`, from its
+  library name (`lib_name/1`), so a precompiled
+  `libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so` ships as
+  `libexplorer.so`. The host's `shipped_name` (in `beam.rs`) links the
+  release's file to it by the same rule.
+  """
   @spec jni_name(String.t()) :: String.t()
-  def jni_name(file), do: "lib#{Path.basename(file, ".so")}.so"
+  def jni_name(file), do: "lib#{lib_name(file)}.so"
 
   @doc """
   The Rust library a NIF file comes from: `libexplorer.so` and the

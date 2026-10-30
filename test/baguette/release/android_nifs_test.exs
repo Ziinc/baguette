@@ -75,7 +75,14 @@ defmodule Baguette.Release.AndroidNifsTest do
 
   test "names: lib<stem>.so in the APK, and the Rust library a file comes from" do
     assert AndroidNifs.jni_name("priv/sqlite3_nif.so") == "libsqlite3_nif.so"
-    assert AndroidNifs.jni_name("priv/native/libfoo.so") == "liblibfoo.so"
+    assert AndroidNifs.jni_name("priv/native/libfoo.so") == "libfoo.so"
+    assert AndroidNifs.jni_name("priv/native/baguette_nif.so") == "libbaguette_nif.so"
+
+    # A precompiled NIF's name carries its version and the build machine's
+    # triple; in the APK it is the library's own name.
+    assert AndroidNifs.jni_name(
+             "priv/native/libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so"
+           ) == "libexplorer.so"
 
     assert AndroidNifs.lib_name("libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so") ==
              "explorer"
@@ -103,8 +110,7 @@ defmodule Baguette.Release.AndroidNifsTest do
     assert {"AR_x86_64_linux_android", "/ndk/bin/llvm-ar"} in build.env
 
     assert build.outputs == [
-             {Path.join(target, "#{@triple}/release/libexplorer.so"),
-              "liblibexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so"}
+             {Path.join(target, "#{@triple}/release/libexplorer.so"), "libexplorer.so"}
            ]
 
     assert build.cache == Path.join(ctx.out, "#{@triple}/explorer-0.13.0")

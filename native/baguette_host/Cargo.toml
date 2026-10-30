@@ -23,6 +23,10 @@ async-channel = "2"
 # Text inputs and checkboxes, and the Root that observes them for Playwright.
 gpui-kit = { version = "=0.7.3", default-features = false, features = ["component", "assets"] }
 gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", rev = "14ec1fe92f2c9ca58607808abdc824d20fa1ca4d", optional = true }
+# gpui-kit's icon catalog. `debug-embed` embeds it in debug builds too:
+# without it they read the icons from the build machine's disk, which a
+# phone (whose APKs are debug builds unless signed) does not have.
+rust-embed = { version = "8", features = ["debug-embed"] }
 baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }
 # Native open and save dialogs for phx-pick-file / phx-pick-save.
