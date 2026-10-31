@@ -7,10 +7,11 @@ defmodule SlimBeam.MixProject do
       version: "0.1.0",
       elixir: "~> 1.18",
       elixirc_paths: if(Mix.env() == :test, do: ["lib", "test/support"], else: ["lib"]),
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: [],
       description: "A mix release step that trims unused BEAM code and files from a release."
     ]
   end
 
-  def application, do: [extra_applications: [:mix]]
+  def application, do: [extra_applications: [:mix, :sasl]]
 end
