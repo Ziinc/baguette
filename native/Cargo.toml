@@ -12,6 +12,15 @@ debug-assertions = false
 [profile.release]
 strip = true
 
+# The precompiled hosts (host.yml), built once for every app: whole-program
+# optimisation for size makes the host about a third as big (33 MB instead
+# of 107 MB on Linux), for a build several times longer.
+[profile.dist]
+inherits = "release"
+lto = "fat"
+codegen-units = 1
+opt-level = "s"
+
 # gpui-kit 0.7.3 plus the painted-text observation gpui-playwright reads
 # (the `playwright` feature). Unused without that feature.
 [patch.crates-io]

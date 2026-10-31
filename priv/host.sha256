@@ -1,0 +1,3 @@
+# sha256sum of each precompiled host for this version's GitHub release,
+# baguette_host-v<version>-OTP-<otp>-<target>.tar.gz, from the host
+# workflow's summary.
