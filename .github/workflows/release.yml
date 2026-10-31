@@ -2,7 +2,8 @@ name: Release
 
 # Pushing a `v*` tag runs CI and the Android build, then publishes the Firehose
 # demo's builds as a GitHub release: Linux (.deb, AppImage), macOS (.dmg for
-# Apple silicon and Intel) and Android (signed APK and AAB).
+# Apple silicon and Intel) and Android (signed APK and AAB). The release also
+# carries Baguette's precompiled NIFs, which apps download (nif.yml).
 
 on:
   push:
@@ -17,8 +18,11 @@ jobs:
     uses: ./.github/workflows/android.yml
     secrets: inherit
 
+  nif:
+    uses: ./.github/workflows/nif.yml
+
   publish:
-    needs: [ci, android]
+    needs: [ci, android, nif]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -26,6 +30,11 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           pattern: firehose-*
+          merge-multiple: true
+          path: assets
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: nif-*
           merge-multiple: true
           path: assets
       - name: Publish
