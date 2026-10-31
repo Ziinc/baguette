@@ -17,6 +17,8 @@ mod pick;
 mod platform;
 #[cfg(feature = "playwright")]
 mod playwright;
+#[cfg(feature = "render")]
+pub mod render;
 mod style;
 mod style_gen;
 mod view;

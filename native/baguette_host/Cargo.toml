@@ -21,8 +21,13 @@ components-gpui-kit = []
 # Serves the app's windows to Playwright clients (gpui-playwright) when
 # GPUI_PLAYWRIGHT is set. Test builds only: release builds leave it out.
 playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/painted-text"]
+# `baguette_host --render`: a frame's JSON in, a PNG out, drawn offscreen by
+# GPUI's headless renderer without Tauri or a display. For screenshot tests
+# (`Baguette.Test.render_png`); release builds leave it out.
+render = ["dep:anyhow", "dep:gpui", "gpui/test-support", "dep:gpui_platform", "gpui_platform/test-support", "dep:image"]
 
 [dependencies]
+anyhow = { version = "1", optional = true }
 async-channel = "2"
 # Text inputs and checkboxes, and the Root that observes them for Playwright.
 gpui-kit = { version = "=0.7.3", default-features = false, features = ["component", "assets"] }
@@ -32,6 +37,10 @@ gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", rev = "14e
 # phone (whose APKs are debug builds unless signed) does not have.
 rust-embed = { version = "8", features = ["debug-embed"] }
 baguette_abi = { path = "../baguette_abi" }
+# The GPUI tauri-plugin-gpui re-exports, and its platform crate, for `render`.
+gpui = { package = "gpui-pre", version = "=0.3.9", optional = true }
+gpui_platform = { package = "gpui-pre-platform", version = "=0.3.9", features = ["font-kit", "x11", "wayland", "runtime_shaders"], optional = true }
+image = { version = "0.25", default-features = false, features = ["png"], optional = true }
 serde = { version = "1", features = ["derive"] }
 # Native open and save dialogs for phx-pick-file / phx-pick-save.
 tauri-plugin-dialog = "2"

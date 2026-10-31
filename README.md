@@ -174,6 +174,29 @@ the action implies (a button to click, a textbox to fill); a keyword list
 (`role:`, `name:`, `text:`, `label:`, `placeholder:`, `test_id:`, `nth:`,
 `exact:`) builds any locator.
 
+`Baguette.Test.render_png/2` draws a window's last frame offscreen with the
+host's own view code and GPUI's headless renderer, with no display or
+release. Check the PNG with
+[gpui-visual-test](https://github.com/Ziinc/gpui-visual-test):
+
+```elixir
+@tag :tmp_dir
+test "counter looks right", %{tmp_dir: dir} do
+  path = Path.join(dir, "counter.png")
+  File.write!(path, Baguette.Test.render_png(0, width: 400, height: 300))
+
+  {report, status} =
+    System.cmd("cargo-visual-test", ["check", path, "--name", "counter/initial", "--scale", "2",
+      "-e", "The count reads 0", "--diff", "0.001"], stderr_to_stdout: true)
+
+  assert status == 0, report
+end
+```
+
+It runs `baguette_host --render` (the host's `render` feature; set
+`BAGUETTE_RENDER` to a prebuilt one), so it needs macOS or Linux with Vulkan
+(lavapipe from `mesa-vulkan-drivers` without a GPU).
+
 ## How it fits together
 
 - `native/baguette_host`: the native host, built on
@@ -208,6 +231,7 @@ gpui-testing-library and gpui-visual-test use.
 
 ```sh
 mix test
+mix test --only render   # screenshots; needs Vulkan (lavapipe) on Linux
 (cd native && cargo test)
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```
