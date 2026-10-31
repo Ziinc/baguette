@@ -56,6 +56,7 @@ jobs:
             libegl-dev libxrandr-dev clang
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p baguette_host --all-targets --features playwright -- -D warnings
       # A release whose source scan leaves out every optional API and icon.
       - run: cargo clippy -p baguette_host --no-default-features --features components-gpui-kit --all-targets -- -D warnings
         env:
@@ -104,12 +105,14 @@ jobs:
         timeout-minutes: 20
       - name: Releases with gpui-playwright, driven from ExUnit
         run: |
-          for app in counter board todo gallery; do
+          for app in counter board todo gallery playwright; do
             (cd examples/$app && mix deps.get && \
               BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
           done
           mix deps.get
           xvfb-run -a mix test --only playwright
+          # Tally drives its release with playwright_ex directly.
+          (cd examples/playwright && xvfb-run -a mix test --only playwright)
         timeout-minutes: 30
       - name: Tauri bundles (deb, AppImage) install and boot the release
         run: scripts/bundle-test-linux.sh examples/broadway Firehose bundle-test
