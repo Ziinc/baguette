@@ -51,9 +51,9 @@ defmodule Baguette.View do
   and Tab and Shift-Tab move focus in `tabindex` order.
 
   Start it in your supervision tree with
-  `{MyApp.CounterView, theme: MyApp.Theme}`. Templates use the same tags,
-  classes, function components and `phx-click`/`phx-value-*` bindings as a
-  `Baguette.LiveView`.
+  `{MyApp.CounterView, theme: MyApp.Theme}`. Templates are HEEx, with
+  function components and `phx-click`/`phx-value-*` bindings as in Phoenix
+  LiveView.
   """
 
   @type assigns :: map()

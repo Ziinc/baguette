@@ -1,16 +1,15 @@
 # Baguette
 
-Native [GPUI](https://www.gpui.rs) applications written in Elixir, on macOS,
-Windows, Linux, Android and iOS.
+Native [GPUI](https://www.gpui.rs) applications written in Elixir.
 
 Elixir owns application state, views, styling and tests. GPUI is only the
-renderer. Screens are plain `Baguette.View`s or real Phoenix LiveViews using
-the same HEEx templates, function components and `phx-*` bindings, and a
-`<webview>` can host a web LiveView inside a native layout. Apps write Rust
-only for platform-specific NIFs.
+renderer. Screens are `Baguette.View`s written in HEEx, with function
+components and Phoenix's `phx-*` bindings. Apps write Rust only for
+platform-specific NIFs.
 
-> **Status:** proof of concept. Linux desktop works end to end; Android,
-> LiveView and the other platforms are in progress.
+> **Status:** early. Linux desktop works end to end and macOS is built and
+> booted in CI. Android builds its host from source; Windows and iOS are not
+> supported yet.
 
 ![A Broadway pipeline visualised live](docs/firehose.gif)
 
@@ -20,9 +19,9 @@ only for platform-specific NIFs.
 | --- | --- |
 | [`examples/broadway`](examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
 | [`examples/counter`](examples/counter) | The smallest app: a count held in a GenServer. |
-| [`examples/playwright`](examples/playwright) | A voting app driven end to end by Playwright from Elixir ([playwright_ex](https://hex.pm/packages/playwright_ex)). |
 | [`examples/board`](examples/board) | A card dragged around a board (`phx-drag`, `absolute`, `<line>`). |
 | [`examples/todo`](examples/todo) | A to-do list: a form with a native text input, checkboxes, list roles. |
+| [`examples/gallery`](examples/gallery) | The native API: gpui-kit components, canvas painting, animations, long lists. |
 
 Each one is a `mix release`:
 
@@ -174,6 +173,25 @@ the action implies (a button to click, a textbox to fill); a keyword list
 (`role:`, `name:`, `text:`, `label:`, `placeholder:`, `test_id:`, `nth:`,
 `exact:`) builds any locator.
 
+The host serves Playwright's own protocol, so
+[playwright_ex](https://hex.pm/packages/playwright_ex) can drive it
+directly too: the app is the browser and its window the page.
+
+```elixir
+{:ok, _} = PlaywrightEx.Supervisor.start_link(ws_endpoint: "ws://127.0.0.1:9333/")
+{:ok, browser} = PlaywrightEx.launch_browser(:chromium, timeout: 10_000)
+{:ok, context} = PlaywrightEx.Browser.new_context(browser.guid, timeout: 10_000)
+{:ok, page} = PlaywrightEx.BrowserContext.new_page(context.guid, timeout: 10_000)
+
+PlaywrightEx.Frame.click(page.main_frame.guid,
+  selector: PlaywrightEx.Selector.button("Increment"),
+  timeout: 10_000
+)
+```
+
+Start the release with `GPUI_PLAYWRIGHT=9333` for that; the server only
+listens when it is set.
+
 ## How it fits together
 
 - `native/baguette_host`: the native host, built on
@@ -192,17 +210,15 @@ gpui-testing-library and gpui-visual-test use.
 
 ## Roadmap
 
-1. Skeleton: Mix project, Rust host crate, Linux CI.
-2. Embedded BEAM: the host boots a `mix release` and loads a static NIF.
-3. Render layer: primitives, Tailwind-style classes, state variants.
-4. Acceptance gate: a counter on Android whose state lives in a GenServer.
-5. LiveView in a `<webview>` on desktop.
-6. LiveView in a `<webview>` on Android.
-7. Elixir starter components and a todo list.
-8. ExUnit testing: render trees, headless interaction, screenshots.
-9. Platform NIF extension point.
-10. iOS, including the webview.
-11. Hardening and a CI matrix for all five targets.
+[`docs/native-api.md`](docs/native-api.md) has what is exposed of GPUI and
+gpui-kit, and the plan for the rest:
+
+1. `img`, `anchored`/`deferred` and text styles.
+2. Hover, key, scroll and focus events, and real drag and drop.
+3. Window controls and displays.
+4. gpui-kit components: dialog, popover, select, tabs, table, switch, ….
+
+Platforms: a precompiled Android host, then Windows and iOS.
 
 ## Development
 
@@ -233,19 +249,26 @@ signed Android APK and AAB. Signing comes from repository secrets:
   `APPLE_SIGNING_IDENTITY`, and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
   to notarize. Without them the app is unsigned.
 
-The release also carries Baguette's NIF, precompiled for macOS (Apple
-silicon, Intel), Linux (x86_64, arm64) and Windows by the `nif` workflow, so
-apps that depend on the hex package compile no Rust for it. Before
-`mix hex.publish`, write the checksums of that release's NIFs, which the
-package ships:
+The release also carries what apps download instead of compiling Rust:
+
+- Baguette's NIF, for macOS (Apple silicon, Intel), Linux (x86_64, arm64)
+  and Windows (`nif` workflow).
+- The default host (gpui-kit's components, no host features), for macOS and
+  Linux on each OTP version (`host` workflow). A release with other
+  components or features, `BAGUETTE_BUILD_HOST=1`, or a version without
+  pinned checksums builds it with Cargo.
+
+After the tag's release is published, pin both sets of checksums, which the
+hex package ships, then publish:
 
 ```sh
+# priv/host.sha256: the lines from the host workflow's summary
 mix rustler_precompiled.download Baguette.Native --all --print
+mix hex.publish
 ```
 
-Checkouts and git dependencies have no checksums and build the NIF from
-source, as does setting `BAGUETTE_BUILD_NIF=1`. The native host is still
-built by `mix release`.
+Checkouts and git dependencies have no NIF checksums and build the NIF from
+source, as does setting `BAGUETTE_BUILD_NIF=1`.
 
 The prebuilt BEAMs come from the `liberlang` workflow, which publishes
 `liberlang-OTP-<version>` once per OTP version; pin the checksums from its

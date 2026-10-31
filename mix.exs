@@ -27,8 +27,8 @@ defmodule Baguette.MixProject do
     [extra_applications: [:logger], mod: {Baguette.Application, []}]
   end
 
-  # Sources for the native host, which `mix release` builds; the NIF comes
-  # precompiled, with its checksums.
+  # The NIF and the default host come precompiled, with their checksums. The
+  # sources ship too, for releases that build them (Baguette.Release).
   defp package do
     host = ~w(src build.rs Cargo.toml capabilities dist icons tauri.conf.json package.json
               package-lock.json)
@@ -37,7 +37,7 @@ defmodule Baguette.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
       files:
-        ~w(lib priv/components priv/liberlang.sha256 scripts mix.exs README.md LICENSE
+        ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256 scripts mix.exs README.md LICENSE
            .formatter.exs checksum-Elixir.Baguette.Native.exs native/Cargo.toml
            native/Cargo.lock native/baguette_abi native/baguette_nif) ++
           Enum.map(host, &"native/baguette_host/#{&1}")

@@ -206,35 +206,16 @@ component set, no `host_features`):
   precompiled binary doesn't know its app's name.
 - The NIF is precompiled with rustler_precompiled (`nif.yml`).
 
-## Next, in order
+## Next
 
 Each step is test first: Rust unit tests, Baguette.Test, then one
-gpui-playwright end-to-end test.
+gpui-playwright end-to-end test. All of it is in the stable set above.
 
-1. **Component sets behind Cargo features.**
-   - A `gpui-kit` set first (it's already a dependency). gpui-bootstrap's
-     set comes later, as an optional crate.
-   - A release option chooses the sets: `baguette: [components: [...]]`.
-   - A mix task writes the manifests into `priv/components/`.
-2. **Manifest checks.**
-   - The manifest records `gpui-pre` and gpui-kit versions plus a hash.
-   - The host compares the hash when the NIF attaches and refuses a
-     mismatch.
-3. **Long lists.**
-   - `<list rows={n} phx-rows="rows">` backed by `uniform_list`.
-   - The host asks for rows by range, Elixir answers with
-     `handle_rows(range, assigns)`, and the host caches the answers.
-   - Crawlaway's live data stream needs this.
-4. **Tree patches.**
-   - Send what changed, keyed by element id and path, instead of the whole
-     tree every render.
-5. **Keymaps and focus.**
-   - `keymap "cmd-k", :open_palette, context: "Jobs"` with `handle_action/2`.
-   - Focus order.
-6. **Platform calls.**
-   - `Baguette.Clipboard`, `Baguette.Window`, `Baguette.Menu`,
-     `Baguette.App.open_url/1` and appearance events.
-   - Calls go over the NIF's ABI, so they need an `ABI_VERSION` bump.
-7. **Canvas paint commands and animation.**
-8. **Generated style attributes.**
-   - Use rustdoc JSON of `Styled`, limited to the stable list above.
+1. **Elements.** `img`; `anchored` and `deferred` for popovers and
+   overlays; styled text runs.
+2. **Events.** Hover, key down/up, scroll and focus/blur bindings; drag and
+   drop with a payload and drop targets, beyond `phx-drag`'s offsets.
+3. **Window and displays.** Minimize, maximize, fullscreen, the window's
+   appearance, and the list of displays with their bounds.
+4. **gpui-kit components.** Dialog, popover, select, tabs, table, switch and
+   the rest of its controls, as component sets on `Root`.

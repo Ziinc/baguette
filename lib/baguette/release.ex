@@ -6,8 +6,9 @@ defmodule Baguette.Release do
         my_app: [steps: [:assemble, &Baguette.Release.package/1]]
       ]
 
-  The step builds the native host (`native/baguette_host`) and installs it as
-  `bin/<release>_app`. Run that executable to start the app; it boots this
+  The step installs the native host (`native/baguette_host`) as
+  `bin/<release>_app`: precompiled when it can be, else built with Cargo
+  (see `host_source/2`). Run that executable to start the app; it boots this
   release inside the host on the BEAM it links. Since the host never runs
   `beam.smp` or `erlexec`, the step trims the release's ERTS to the two
   programs that BEAM starts (`trim_erts!/1`), so `bin/<release>` no longer
