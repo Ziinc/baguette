@@ -42,12 +42,20 @@ defmodule SlimBeam do
   Removes `lib/*/src`, `lib/*/include` and `lib/*/doc`, and whatever matches
   the globs in `prune: ["lib/*/priv/static/*.map"]`, relative to the
   release root.
+
+  ## Report
+
+  The step writes `releases/<vsn>/slim_beam.json`: sizes before and after,
+  and each file removed with the reason (see `SlimBeam.Report`).
   """
+
+  alias SlimBeam.Report
 
   @doc "The release step."
   @spec step(Mix.Release.t()) :: Mix.Release.t()
   def step(%Mix.Release{} = release) do
     opts = release.options[:slim_beam] || []
+    before = Report.sizes(release.path)
     purged = if Keyword.get(opts, :purge, true), do: SlimBeam.Purge.run(release, opts), else: []
 
     removed =
@@ -55,7 +63,18 @@ defmodule SlimBeam do
         SlimBeam.Erts.run(release.path, opts[:erts] || []) ++
         SlimBeam.Prune.run(release.path, opts[:prune] || [])
 
-    Mix.shell().info([:green, "* slim_beam ", :reset, "removed #{length(removed)} files"])
+    after_ = Report.sizes(release.path)
+    report = Path.join(release.version_path, "slim_beam.json")
+    Report.write!(report, before, after_, removed)
+
+    Mix.shell().info([
+      :green,
+      "* slim_beam ",
+      :reset,
+      "#{Report.format_bytes(before.total)} -> #{Report.format_bytes(after_.total)}, ",
+      "#{length(purged)} modules purged (#{Path.relative_to(report, release.path)})"
+    ])
+
     release
   end
 
