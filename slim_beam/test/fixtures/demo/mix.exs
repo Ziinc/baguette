@@ -6,7 +6,13 @@ defmodule Demo.MixProject do
       app: :demo,
       version: "0.1.0",
       deps: [{:demo_dep, path: "../demo_dep"}, {:slim_beam, path: "../../..", runtime: false}],
-      releases: [demo: [steps: [:assemble, &SlimBeam.step/1], slim_beam: slim_beam()]]
+      releases: [
+        demo: [
+          steps: [:assemble, &SlimBeam.step/1],
+          slim_beam: slim_beam(),
+          path: System.get_env("DEMO_PATH", "_build/prod/rel/demo")
+        ]
+      ]
     ]
   end
 
