@@ -5,6 +5,7 @@
 //! On desktop it is an executable (`src/main.rs`); on Android and iOS the
 //! platform loads this library and calls [`run`].
 
+mod animation;
 mod beam;
 mod bridge;
 pub mod components;

@@ -158,12 +158,25 @@ tests both read it, so the two sides can't drift apart.
   `line`, `polyline`, `polygon` and `path` (absolute `M L H V C Q Z`),
   coloured by `fill-<color>` and `stroke-<color>` with `stroke-width`.
   `paint.rs` reads them and paints them with `gpui::canvas`, using
-  `paint_quad` and `PathBuilder`. `animate="pulse"` or `"fade-in"` with
-  `duration` (ms) animates an element's opacity from when it first
-  rendered, asking for animation frames while it runs, so the element keeps
-  its layout and stays observable. `<icon animate="spin">` turns with
-  `with_animation`. The gallery's e2e test checks the painted pixels and
-  that the pulse changes.
+  `paint_quad` and `PathBuilder`. The gallery's e2e test checks the
+  painted pixels.
+- **Animations** (`animation.rs`). Any element tweens its style from
+  `animate-from` to `animate-to` (classes; either defaults to its own
+  `class`). Every numeric and colour property GPUI's style holds
+  interpolates: opacity, background, text and border colours, font size,
+  sizes, insets, margins, padding, gaps, radii and border widths.
+  - Timing: `duration` and `delay` (ms), `easing` (GPUI's `linear`,
+    `quadratic`/`ease-in`, `ease-in-out`, `ease-out`, `bounce`, `pulsate`,
+    or `cubic-bezier(...)`), `repeat` (a count or `infinite`), `direction`
+    (`normal`, `reverse`, `alternate`, `alternate-reverse`) and `fill`
+    (`forwards` by default, as GPUI's `with_animation` holds the end;
+    `backwards`, `both`, `none`).
+  - Presets: `animate="pulse|fade-in|fade-out|flash"`, which those
+    attributes adjust. `<icon animate="spin">` turns with `with_animation`.
+  - An animation starts when its element first renders, keyed by its `id`
+    (else its path), so a prepended row keeps or starts its own; a new
+    `id` starts a new one. The host asks for animation frames only while
+    one runs, and the element keeps its layout and stays observable.
 - **Generated style attributes** (step 8). `mix baguette.styles` reads
   `gpui-pre`'s rustdoc JSON (this needs nightly) and writes `style_gen.rs`.
   That file is a sorted table with one class per argument-free `Styled`

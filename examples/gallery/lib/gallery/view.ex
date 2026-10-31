@@ -15,7 +15,8 @@ defmodule Gallery.View do
        pasted: nil,
        title: nil,
        details: false,
-       appearance: App.appearance()
+       appearance: App.appearance(),
+       entries: [1]
      }}
   end
 
@@ -27,6 +28,32 @@ defmodule Gallery.View do
         <.tag variant="success">Done</.tag>
         <.kbd keys="ctrl-k" />
         <.spinner size="small" />
+        <div
+          aria-label="Tween"
+          class="w-16 h-6 bg-[#ff0000]"
+          animate-to="bg-[#0000ff]"
+          duration="600"
+        />
+        <button phx-click="add_entry" aria-label="Add entry" class="px-2 border border-border">
+          Add entry
+        </button>
+      </div>
+      <div class="flex-col">
+        <div
+          :for={entry <- @entries}
+          id={"entry-#{entry}"}
+          aria-label={"Entry #{entry}"}
+          class="relative h-6 w-48 bg-[#ffffff]"
+        >
+          <div
+            id={"flash-#{entry}"}
+            animate="flash"
+            easing="linear"
+            duration="2000"
+            class="absolute inset-0 bg-[#00ff00]"
+          />
+          <text>Entry {entry}</text>
+        </div>
       </div>
       <.progress value={@done} aria-label="Upload" class="w-64" />
       <text>{@done}% uploaded</text>
@@ -109,6 +136,9 @@ defmodule Gallery.View do
     Window.open(1, title: "Details", width: 320, height: 200)
     {:noreply, %{assigns | details: Window.info(1) != nil}}
   end
+
+  def handle_event("add_entry", _values, assigns),
+    do: {:noreply, %{assigns | entries: [hd(assigns.entries) + 1 | assigns.entries]}}
 
   def handle_event("more", _values, assigns),
     do: {:noreply, %{assigns | done: min(assigns.done + 10, 100)}}
