@@ -2,7 +2,7 @@ defmodule SlimBeam.CheckTest do
   use ExUnit.Case, async: false
 
   @moduletag timeout: 300_000
-  @options [safelist: [modules: [DemoDep.Safe]]]
+  @options [keep: [modules: [DemoDep.Safe]]]
   @demo Path.expand("../fixtures/demo", __DIR__)
 
   defp mix_test(env) do
@@ -24,6 +24,6 @@ defmodule SlimBeam.CheckTest do
     assert status != 0
     assert out =~ "DemoDep.Unused (demo_dep)"
     refute out =~ "DemoDep.Safe"
-    assert out =~ "safelist"
+    assert out =~ "slim_beam: [keep: [modules: [DemoDep.Unused, DemoDep.UnusedToo]]]"
   end
 end

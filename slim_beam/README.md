@@ -8,7 +8,7 @@ def project do
     releases: [
       my_app: [
         steps: [:assemble, &SlimBeam.step/1],
-        slim_beam: [safelist: [modules: [MyDep.Plugin]]]
+        slim_beam: [keep: [modules: [MyDep.Plugin]]]
       ]
     ],
     deps: [{:slim_beam, path: "...", runtime: false}]
@@ -23,7 +23,7 @@ assembled release directory, so dev and test builds stay as they are.
 
 | Part | Default | Option |
 | --- | --- | --- |
-| Dependency modules that nothing reaches | on | `apps:`, `safelist:`, `purge: false` |
+| Dependency modules that nothing reaches | on | `apps:`, `keep:`, `purge: false` |
 | ERTS executables, `include`, `lib`, `doc`, `man` | off | `erts: [keep: [...]]` |
 | `lib/*/src`, `lib/*/include`, `lib/*/doc` | on | `prune: [globs]` adds more |
 
@@ -43,7 +43,7 @@ release keeps a module when something reaches it from these roots:
 - the `mod` and `env` of every `.app`
 - the atoms in `releases/<vsn>/sys.config`, and the modules and atoms that
   `runtime.exs` names (read without running it)
-- `safelist: [modules: [...]]`
+- `keep: [modules: [...]]`
 
 Then it rewrites each `.app` file's `modules` and the `primLoad` lists in
 the `releases/<vsn>/*.script` files, and regenerates the `.boot` files.
@@ -56,10 +56,10 @@ the `releases/<vsn>/*.script` files, and regenerates the `.boot` files.
   rely on it.
 - a list of apps.
 
-`safelist: [apps: [...]]` keeps apps whole.
+`keep: [apps: [...]]` keeps apps whole.
 
 A module that is reached only by a computed name (`Module.concat/1`,
-`String.to_atom/1`, a name read from a file) is purged. Safelist it.
+`String.to_atom/1`, a name read from a file) is purged. Add it to `keep: [modules: [...]]`.
 
 ### ERTS trim
 
@@ -82,7 +82,7 @@ ExUnit.start()
 
 After the suite runs, the check plans the purge over the test build's code
 paths, using the release's options. If the tests loaded a module the release
-would purge, it prints the module and exits 1, so that module needs the
-safelist. In place of `sys.config`, it reads every `config/**/*.exs` without
+would purge, it prints the module and exits 1, so that module belongs in
+`keep:`. In place of `sys.config`, it reads every `config/**/*.exs` without
 running it. With several releases, name one:
 `&SlimBeam.Check.loaded!(&1, release: :my_app)`.

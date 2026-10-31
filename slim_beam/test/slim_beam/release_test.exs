@@ -7,7 +7,7 @@ defmodule SlimBeam.ReleaseTest do
   @moduletag timeout: 300_000
 
   setup_all do
-    {path, _out} = Fixture.release!(safelist: [modules: [DemoDep.Safe]])
+    {path, _out} = Fixture.release!(keep: [modules: [DemoDep.Safe]])
     %{path: path}
   end
 
@@ -71,7 +71,8 @@ defmodule SlimBeam.ReleaseTest do
   end
 
   test "the slimmed release boots in embedded mode", %{path: path} do
-    env = [{"DEMO_BOOT_CHECK", "1"}, {"RELEASE_MODE", "embedded"}]
+    node = "demo_#{System.unique_integer([:positive])}"
+    env = [{"DEMO_BOOT_CHECK", "1"}, {"RELEASE_MODE", "embedded"}, {"RELEASE_NODE", node}]
 
     port =
       Port.open({:spawn_executable, Path.join(path, "bin/demo")}, [
@@ -82,10 +83,10 @@ defmodule SlimBeam.ReleaseTest do
         env: charlist_env(env)
       ])
 
+    on_exit(fn -> Fixture.run(path, ["stop"], [{"RELEASE_NODE", node}]) end)
+
     assert_receive {^port, {:data, out}}, 30_000
     assert out =~ "hello,configured,runtime,safe,struct 1"
-    {:os_pid, pid} = Port.info(port, :os_pid)
-    System.cmd("kill", ["#{pid}"])
   end
 
   defp charlist_env(env), do: for({k, v} <- env, do: {~c"#{k}", ~c"#{v}"})

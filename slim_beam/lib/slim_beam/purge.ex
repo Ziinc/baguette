@@ -32,7 +32,7 @@ defmodule SlimBeam.Purge do
 
     Plan.build(apps,
       purgeable: SlimBeam.purgeable(Keyword.keys(apps), SlimBeam.project_apps(), opts),
-      roots: config_atoms(release.version_path) ++ SlimBeam.safelisted_modules(opts),
+      roots: config_atoms(release.version_path) ++ SlimBeam.kept_modules(opts),
       consolidated: if(File.dir?(consolidated), do: consolidated)
     )
   end
