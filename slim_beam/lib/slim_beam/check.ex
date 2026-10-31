@@ -10,7 +10,7 @@ defmodule SlimBeam.Check do
   release's apps, with the release's `slim_beam:` options. The roots stand
   in for `sys.config` with every module and atom named in `config/**/*.exs`,
   read without running them. A module the tests load but the plan purges is
-  one the release reaches only by a computed name: add it to the safelist.
+  one the release reaches only by a computed name: add it to the release's `keep:` list.
 
   With several releases, name one: `&SlimBeam.Check.loaded!(&1, release: :my_app)`.
   """
@@ -59,7 +59,7 @@ defmodule SlimBeam.Check do
 
     Plan.build(apps,
       purgeable: SlimBeam.purgeable(Keyword.keys(apps), SlimBeam.project_apps(), slim),
-      roots: config_atoms ++ SlimBeam.safelisted_modules(slim),
+      roots: config_atoms ++ SlimBeam.kept_modules(slim),
       consolidated:
         if(config[:consolidate_protocols] && File.dir?(consolidated), do: consolidated)
     )
@@ -76,9 +76,9 @@ defmodule SlimBeam.Check do
     #{list}
 
     The release reaches them only by a computed name. Keep them with the
-    release's safelist:
+    release's keep list:
 
-        slim_beam: [safelist: [modules: [#{Enum.map_join(Enum.sort(modules), ", ", &inspect(elem(&1, 0)))}]]]
+        slim_beam: [keep: [modules: [#{Enum.map_join(Enum.sort(modules), ", ", &inspect(elem(&1, 0)))}]]]
     """
   end
 end

@@ -53,7 +53,7 @@ The host links the BEAM, so of ERTS it needs only `erl_child_setup` and
 `inet_gethost`. Removing the rest takes the Firehose release's Elixir side
 from 78 MB to 18 MB. Afterwards `bin/firehose` can't start the release, but
 `bin/firehose_app` still can. Purging unreachable dependency modules is on
-by default. For safelisting, see the [SlimBeam README](slim_beam/README.md).
+by default. To keep modules it can't see, see the [SlimBeam README](slim_beam/README.md).
 
 ## A view
 

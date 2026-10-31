@@ -5,7 +5,7 @@ defmodule SlimBeam do
       releases: [
         my_app: [
           steps: [:assemble, &SlimBeam.step/1],
-          slim_beam: [safelist: [modules: [MyDep.Plugin]]]
+          slim_beam: [keep: [modules: [MyDep.Plugin]]]
         ]
       ]
 
@@ -18,13 +18,13 @@ defmodule SlimBeam do
   reach (see `SlimBeam.Plan`), then rewrites each `.app` file's `modules` and
   the boot scripts. The roots are the project's own apps, every `.app`'s
   `mod` and `env`, the atoms in `sys.config` and `runtime.exs`, and the
-  safelist.
+  `keep:` list.
 
     * `:apps` - which apps may lose modules: `:deps` (default) for the
       project's dependencies, `:all` for every app but the project's own, or
       a list. OTP, `elixir` and `logger` dispatch by name all over, so
       `:deps` leaves them whole.
-    * `:safelist` - `[modules: [...], apps: [...]]`: modules to keep with all
+    * `:keep` - `[modules: [...], apps: [...]]`: modules to keep with all
       they reach, and apps to keep whole. A module reached only by a computed
       name (`Module.concat/1`, `String.to_atom/1`) belongs here.
     * `purge: false` turns the purge off.
@@ -86,7 +86,7 @@ defmodule SlimBeam do
 
   @doc """
   The apps of `apps` that may lose modules under `opts` (see `:apps` and
-  `:safelist`). `project_apps` are never purged.
+  `:keep`). `project_apps` are never purged.
   """
   @spec purgeable([atom()], [atom()], keyword()) :: [atom()]
   def purgeable(apps, project_apps, opts) do
@@ -97,7 +97,7 @@ defmodule SlimBeam do
         list when is_list(list) -> list
       end
 
-    keep = project_apps ++ (get_in(opts, [:safelist, :apps]) || [])
+    keep = project_apps ++ (get_in(opts, [:keep, :apps]) || [])
     Enum.filter(apps, &(&1 in candidates and &1 not in keep))
   end
 
@@ -109,7 +109,7 @@ defmodule SlimBeam do
       else: [Mix.Project.config()[:app]]
   end
 
-  @doc "The safelisted modules in `opts`."
-  @spec safelisted_modules(keyword()) :: [module()]
-  def safelisted_modules(opts), do: get_in(opts, [:safelist, :modules]) || []
+  @doc "The modules `opts` keeps."
+  @spec kept_modules(keyword()) :: [module()]
+  def kept_modules(opts), do: get_in(opts, [:keep, :modules]) || []
 end

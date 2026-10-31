@@ -29,7 +29,7 @@ defmodule DemoDep.Runtime do
   def x, do: "runtime"
 end
 
-# Reached only by a computed name, so it needs the safelist.
+# Reached only by a computed name, so it needs the keep list.
 defmodule DemoDep.Safe do
   def x, do: "safe"
 end
