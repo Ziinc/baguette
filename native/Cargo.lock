@@ -624,9 +624,11 @@ name = "baguette_host"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "ashpd",
  "async-channel",
  "baguette_abi",
  "flate2",
+ "futures-lite",
  "gpui-kit",
  "gpui-playwright",
  "libc",
