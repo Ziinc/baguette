@@ -36,6 +36,12 @@ defmodule SlimBeam do
   `man`. Off by default: without `beam.smp` and `erlexec` the release's own
   `bin/<name>` script can no longer start it. It is for hosts that embed the
   BEAM and start the release themselves.
+
+  ## File pruning
+
+  Removes `lib/*/src`, `lib/*/include` and `lib/*/doc`, and whatever matches
+  the globs in `prune: ["lib/*/priv/static/*.map"]`, relative to the
+  release root.
   """
 
   @doc "The release step."
@@ -43,7 +49,12 @@ defmodule SlimBeam do
   def step(%Mix.Release{} = release) do
     opts = release.options[:slim_beam] || []
     purged = if Keyword.get(opts, :purge, true), do: SlimBeam.Purge.run(release, opts), else: []
-    removed = purged ++ SlimBeam.Erts.run(release.path, opts[:erts] || [])
+
+    removed =
+      purged ++
+        SlimBeam.Erts.run(release.path, opts[:erts] || []) ++
+        SlimBeam.Prune.run(release.path, opts[:prune] || [])
+
     Mix.shell().info([:green, "* slim_beam ", :reset, "removed #{length(removed)} files"])
     release
   end

@@ -45,6 +45,10 @@ defmodule SlimBeam.ReleaseTest do
     refute DemoDep.Unused in loaded
   end
 
+  test "prunes include directories", %{path: path} do
+    assert Path.wildcard(Path.join(path, "lib/*/include")) == []
+  end
+
   test "the slimmed release evals", %{path: path} do
     assert {out, 0} = Fixture.run(path, ["eval", "IO.puts(Demo.hello())"])
     assert out =~ "hello,configured,runtime,safe,struct 1"
