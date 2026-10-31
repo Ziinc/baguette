@@ -210,6 +210,20 @@ signed Android APK and AAB. Signing comes from repository secrets:
   `APPLE_SIGNING_IDENTITY`, and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
   to notarize. Without them the app is unsigned.
 
+The release also carries Baguette's NIF, precompiled for macOS (Apple
+silicon, Intel), Linux (x86_64, arm64) and Windows by the `nif` workflow, so
+apps that depend on the hex package compile no Rust for it. Before
+`mix hex.publish`, write the checksums of that release's NIFs, which the
+package ships:
+
+```sh
+mix rustler_precompiled.download Baguette.Native --all --print
+```
+
+Checkouts and git dependencies have no checksums and build the NIF from
+source, as does setting `BAGUETTE_BUILD_NIF=1`. The native host is still
+built by `mix release`.
+
 The prebuilt BEAMs come from the `liberlang` workflow, which publishes
 `liberlang-OTP-<version>` once per OTP version; pin the checksums from its
 summary in `priv/liberlang.sha256`.
