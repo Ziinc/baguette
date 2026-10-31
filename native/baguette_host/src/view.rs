@@ -316,9 +316,13 @@ impl Renderer<'_, '_> {
         let on_click: Option<ClickHandler> =
             match (click_handler(window, attrs), self.submits(tag, attrs)) {
                 (Some(click), _) => Some(Box::new(click)),
-                (None, _) if picks(attrs) => {
+                (None, _) if crate::pick::Pick::from_attrs(window, attrs).is_some() => {
                     let attrs = attrs.clone();
-                    Some(Box::new(move |_, _, _| open_picker(window, &attrs)))
+                    Some(Box::new(move |_, _, _| {
+                        if let Some(pick) = crate::pick::Pick::from_attrs(window, &attrs) {
+                            pick.open();
+                        }
+                    }))
                 }
                 (None, Some(form)) => {
                     let root = self.cx.entity().downgrade();
@@ -683,25 +687,7 @@ fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme, id: &str) -> Any
     .into_any_element()
 }
 
-/// Whether the element is a file picker (`phx-pick-file`, `phx-pick-save`).
-fn picks(attrs: &BTreeMap<String, String>) -> bool {
-    attrs.contains_key("phx-pick-file") || attrs.contains_key("phx-pick-save")
-}
-
-#[cfg(feature = "api-pick")]
-fn open_picker(window: u32, attrs: &BTreeMap<String, String>) {
-    if let Some(pick) = crate::pick::Pick::from_attrs(window, attrs) {
-        pick.open();
-    }
-}
-
-/// A release without `:pick` (`Baguette.Release.Scan`) has no dialogs.
-#[cfg(not(feature = "api-pick"))]
-fn open_picker(_window: u32, _attrs: &BTreeMap<String, String>) {
-    crate::log_line("baguette: phx-pick-* needs the :pick API, which this release excludes");
-}
-
-/// The asset path of the icon called `name`, if this build embeds it.
+/// The asset path of the icon called `name`, if gpui-kit bundles it.
 pub fn icon_path(name: &str) -> Option<SharedString> {
     use gpui::AssetSource;
     let valid = !name.is_empty()
@@ -709,7 +695,7 @@ pub fn icon_path(name: &str) -> Option<SharedString> {
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     let path = format!("icons/{name}.svg");
-    (valid && matches!(crate::icons::Icons.load(&path), Ok(Some(_))))
+    (valid && matches!(gpui_kit::assets::AllAssets.load(&path), Ok(Some(_))))
         .then(|| SharedString::from(path))
 }
 

@@ -85,7 +85,6 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
             Ok(Value::Null)
         }
         "app.appearance" => Ok(json!(appearance(cx.window_appearance()))),
-        #[cfg(feature = "api-open-url")]
         "app.open_url" => {
             use tauri_plugin_opener::OpenerExt;
             app.opener()
@@ -93,8 +92,6 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
                 .map_err(|e| e.to_string())?;
             Ok(Value::Null)
         }
-        #[cfg(not(feature = "api-open-url"))]
-        "app.open_url" => Err("needs the :open_url API, which this release excludes".into()),
         "menu.set" => {
             let menus: Vec<MenuSpec> =
                 serde_json::from_value(request.args["menus"].clone()).map_err(|e| e.to_string())?;
