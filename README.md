@@ -55,10 +55,9 @@ build it with `scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang` and set
   `prune:`.
 
 `releases/<vsn>/slim.json` lists what went and why (`Baguette.Release.Slim`).
-To catch a module the release reaches only by a computed name, add
-`ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)` to
-`test_helper.exs`: it fails the suite when the tests load a module the
-release would purge.
+To catch a module the release reaches only by a computed name, call
+`Baguette.Release.Slim.Check.start()` in `test_helper.exs`: it fails the
+suite when the tests load a module the release would purge.
 
 ## A view
 

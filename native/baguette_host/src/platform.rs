@@ -95,7 +95,11 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
         "menu.set" => {
             let menus: Vec<MenuSpec> =
                 serde_json::from_value(request.args["menus"].clone()).map_err(|e| e.to_string())?;
+            #[cfg(desktop)]
             set_menus(app, &menus).map_err(|e| e.to_string())?;
+            // Phones have no menu bar.
+            #[cfg(mobile)]
+            let _ = menus;
             Ok(Value::Null)
         }
         "window.open" => {
@@ -169,6 +173,7 @@ fn info(window: &tauri::Window) -> tauri::Result<Value> {
     }))
 }
 
+#[cfg(desktop)]
 fn set_menus(app: &tauri::AppHandle, menus: &[MenuSpec]) -> tauri::Result<()> {
     use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
     let mut bar = MenuBuilder::new(app);
@@ -194,12 +199,14 @@ fn set_menus(app: &tauri::AppHandle, menus: &[MenuSpec]) -> tauri::Result<()> {
 
 /// Sends each menu click to window 0's view, as an event named by the
 /// item's id.
+#[cfg(desktop)]
 pub fn on_menu_event(event: tauri::menu::MenuEvent) {
     bridge::emit(&json!({"type": "menu", "window": 0, "event": event.id().0}));
 }
 
 /// A keystroke in GPUI's syntax (`secondary-shift-p`) as a Tauri
 /// accelerator (`CmdOrCtrl+Shift+P`).
+#[cfg_attr(mobile, allow(dead_code))]
 pub fn accelerator(keys: &str) -> String {
     let parts: Vec<&str> = match keys.strip_suffix("--") {
         // `ctrl--` is Ctrl and the minus key.

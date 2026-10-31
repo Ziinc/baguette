@@ -3,19 +3,20 @@ defmodule Baguette.Release.Slim.Check do
   Fails `mix test` when the suite loads a module the release would purge.
 
       # test/test_helper.exs
-      ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)
+      Baguette.Release.Slim.Check.start()
       ExUnit.start()
 
-  It plans the purge over the current environment's code paths for the
-  release's apps, with the release's `baguette:` options. The roots stand
-  in for `sys.config` with every module and atom named in `config/**/*.exs`,
-  read without running them. A module the tests load but the plan purges is
-  one the release reaches only by a computed name: add it to the release's `keep:` list.
+  After the suite it checks the modules the tests loaded. It plans the purge over the
+  current environment's code paths for the release's apps, with the
+  release's `baguette:` options. The roots stand in for `sys.config` with
+  every module and atom named in `config/**/*.exs`, read without running
+  them. A module the tests load but the plan purges is one the release
+  reaches only by a computed name: add it to the release's `keep:` list.
 
   Elixir's own apps are left out of the check, because Mix and ExUnit load
-  their modules themselves.
+  their modules as the suite runs.
 
-  With several releases, name one: `&Baguette.Release.Slim.Check.loaded!(&1, release: :my_app)`.
+  With several releases, name one: `start(release: :my_app)`.
   """
 
   alias Baguette.Release.Slim
@@ -25,9 +26,36 @@ defmodule Baguette.Release.Slim.Check do
   # these apps out.
   @tooling_apps [:elixir, :eex, :iex, :logger, :mix, :ex_unit]
 
-  @doc "The `ExUnit.after_suite/1` callback. Makes `mix test` exit 1 on a violation."
-  @spec loaded!(map(), keyword()) :: :ok
-  def loaded!(_results, opts \\ []) do
+  @doc """
+  Checks, after the suite, the modules the tests load. Makes `mix test`
+  exit 1 on a violation. Call it in `test_helper.exs`.
+
+  Compiling a project in the test VM loads its modules, so `start/1`
+  unloads those the release would purge: a test that uses one loads it
+  again. One it can't unload, because a process runs it, is in use already.
+  """
+  @spec start(keyword()) :: :ok
+  def start(opts \\ []) do
+    %{purge: purge} = plan(opts)
+
+    in_use =
+      for {module, _} <- :code.all_loaded(),
+          app = purge[module],
+          app not in @tooling_apps,
+          not unload(module),
+          do: module
+
+    already = MapSet.new(:code.all_loaded(), &elem(&1, 0))
+    opts = Keyword.merge(opts, except: already, in_use: in_use)
+    ExUnit.after_suite(fn _results -> loaded!(opts) end)
+  end
+
+  defp unload(module) do
+    :code.delete(module) and :code.soft_purge(module)
+  end
+
+  @doc false
+  def loaded!(opts) do
     case purged_loaded(opts) do
       [] ->
         :ok
@@ -39,14 +67,20 @@ defmodule Baguette.Release.Slim.Check do
     end
   end
 
-  @doc "The loaded modules the release would purge, with their apps."
+  @doc """
+  The modules the release would purge that are loaded, but for those in
+  `opts[:except]`, or in `opts[:in_use]`, with their apps.
+  """
   @spec purged_loaded(keyword()) :: [{module(), atom()}]
   def purged_loaded(opts \\ []) do
     %{purge: purge} = plan(opts)
+    except = Keyword.get(opts, :except, MapSet.new())
+    loaded = for {module, _} <- :code.all_loaded(), do: module
 
-    for {module, _} <- :code.all_loaded(),
+    for module <- Enum.uniq(loaded ++ Keyword.get(opts, :in_use, [])),
         app = purge[module],
         app not in @tooling_apps,
+        not MapSet.member?(except, module),
         do: {module, app}
   end
 

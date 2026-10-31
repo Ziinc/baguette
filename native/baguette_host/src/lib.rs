@@ -51,10 +51,13 @@ pub fn run() {
     beam::android::log_stdio();
     let (host, inbox) = bridge::install();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
-        .on_menu_event(|_, event| platform::on_menu_event(event))
+        .plugin(tauri_plugin_opener::init());
+    // Menus are desktop only.
+    #[cfg(desktop)]
+    let builder = builder.on_menu_event(|_, event| platform::on_menu_event(event));
+    builder
         .setup(move |app| {
             pick::install(app.handle().clone());
             use tauri::Manager;

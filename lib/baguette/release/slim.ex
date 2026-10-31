@@ -43,9 +43,9 @@ defmodule Baguette.Release.Slim do
 
   ## Test check
 
-  `ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)` in
-  `test_helper.exs` fails `mix test` when the suite loads a module the
-  release would purge (see `Baguette.Release.Slim.Check`).
+  `Baguette.Release.Slim.Check.start()` in `test_helper.exs` fails
+  `mix test` when the suite loads a module the release would purge (see
+  `Baguette.Release.Slim.Check`).
   """
 
   alias Baguette.Release.Slim.{Prune, Purge, Report}
