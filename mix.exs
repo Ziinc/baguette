@@ -11,6 +11,11 @@ defmodule Baguette.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # test/fixtures holds projects with tests of their own.
+      test_load_filters: [
+        &(&1 =~ ~r"_test\.exs$" and not String.starts_with?(&1, "test/fixtures/"))
+      ],
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: deps(),
       description: "Native GPUI applications written in Elixir.",
       source_url: @source_url,

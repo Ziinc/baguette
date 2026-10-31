@@ -37,6 +37,29 @@ The host links a prebuilt BEAM (`liberlang.a`) for your OTP version, which
 build it with `scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang` and set
 `BAGUETTE_LIBERLANG=~/liberlang`.
 
+### Smaller releases
+
+`package/1` trims every release to what it runs:
+
+- **Code:** it removes the modules nothing in the release can reach,
+  Elixir's, IEx's and the dependencies' included. `kernel`, `stdlib`,
+  `logger`, `telemetry` and the OTP apps that dispatch on computed names
+  (`crypto`, `ssl`, `public_key`, `inets`, `asn1`) stay whole. Keep anything
+  it can't see, such as a module reached by `Module.concat/1` or a debugging
+  tool like `recon`, with
+  `baguette: [keep: [modules: [MyDep.Plugin], apps: [:recon]]]`.
+- **ERTS:** the host links the BEAM, so it keeps only `erl_child_setup` and
+  `inet_gethost`. Start the app with `bin/<name>_app`; `bin/<name>` can no
+  longer start the release.
+- **Files:** `lib/*/src`, `lib/*/include` and `lib/*/doc`, plus the globs in
+  `prune:`.
+
+`releases/<vsn>/slim.json` lists what went and why (`Baguette.Release.Slim`).
+To catch a module the release reaches only by a computed name, add
+`ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)` to
+`test_helper.exs`: it fails the suite when the tests load a module the
+release would purge.
+
 ## A view
 
 ```elixir
