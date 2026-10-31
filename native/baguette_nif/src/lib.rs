@@ -2,7 +2,7 @@
 //! the Elixir process that attached.
 
 use std::ffi::c_void;
-use std::sync::OnceLock;
+use std::sync::RwLock;
 
 use baguette_abi::{ABI_VERSION, EventSink, HostApi};
 use rustler::{Binary, Encoder, Env, LocalPid, NifResult, OwnedBinary, OwnedEnv};
@@ -11,22 +11,28 @@ mod atoms {
     rustler::atoms! {
         ok,
         baguette_event,
-        already_attached,
         abi_mismatch,
         components_mismatch,
         not_attached,
     }
 }
 
+#[derive(Clone, Copy)]
 struct Attached {
     host: &'static HostApi,
     pid: LocalPid,
 }
 
-static ATTACHED: OnceLock<Attached> = OnceLock::new();
+/// The host and the process its events go to. Attaching again (when
+/// `Baguette.Host` restarts) replaces it.
+static ATTACHED: RwLock<Option<Attached>> = RwLock::new(None);
+
+fn attached() -> Option<Attached> {
+    *ATTACHED.read().unwrap_or_else(|e| e.into_inner())
+}
 
 extern "C" fn deliver(_ctx: *mut c_void, json: *const u8, len: usize) {
-    let Some(attached) = ATTACHED.get() else {
+    let Some(attached) = attached() else {
         return;
     };
     // SAFETY: the host passes a buffer valid for `len` bytes for this call.
@@ -42,7 +48,8 @@ extern "C" fn deliver(_ctx: *mut c_void, json: *const u8, len: usize) {
 }
 
 /// Binds the host at `address` to the calling process, which then receives
-/// `{:baguette_event, json}` for every UI event. Only one process may attach.
+/// `{:baguette_event, json}` for every UI event. A later attach takes the
+/// events over: the host outlives a restarted `Baguette.Host`.
 /// `components` (JSON, set name to manifest hash) are the native component
 /// sets Elixir was compiled against; the host refuses ones it has otherwise.
 #[rustler::nif]
@@ -60,9 +67,7 @@ fn attach(env: Env, address: u64, components: Binary) -> NifResult<rustler::Atom
         host,
         pid: env.pid(),
     };
-    if ATTACHED.set(attached).is_err() {
-        return Err(rustler::Error::Term(Box::new(atoms::already_attached())));
-    }
+    *ATTACHED.write().unwrap_or_else(|e| e.into_inner()) = Some(attached);
     (host.set_event_sink)(
         host.ctx,
         EventSink {
@@ -76,7 +81,7 @@ fn attach(env: Env, address: u64, components: Binary) -> NifResult<rustler::Atom
 /// Sends the host a platform call; its reply arrives as an event.
 #[rustler::nif]
 fn call(json: Binary) -> NifResult<rustler::Atom> {
-    let Some(attached) = ATTACHED.get() else {
+    let Some(attached) = attached() else {
         return Err(rustler::Error::Term(Box::new(atoms::not_attached())));
     };
     (attached.host.call)(attached.host.ctx, json.as_ptr(), json.len());
@@ -86,7 +91,7 @@ fn call(json: Binary) -> NifResult<rustler::Atom> {
 /// Replaces window `window`'s view with the JSON tree in `json`.
 #[rustler::nif]
 fn render(window: u32, json: Binary) -> NifResult<rustler::Atom> {
-    let Some(attached) = ATTACHED.get() else {
+    let Some(attached) = attached() else {
         return Err(rustler::Error::Term(Box::new(atoms::not_attached())));
     };
     (attached.host.render)(attached.host.ctx, window, json.as_ptr(), json.len());

@@ -57,6 +57,14 @@ pub fn handle(json: &[u8], app: &tauri::AppHandle, cx: &mut gpui::App) {
         Ok(request) => request,
         Err(error) => {
             crate::log_line(&format!("baguette: invalid platform call: {error}"));
+            // Answer it if it has a ref, so its caller doesn't wait.
+            let reference = serde_json::from_slice::<Value>(json)
+                .ok()
+                .and_then(|call| call["ref"].as_u64());
+            if let Some(reference) = reference {
+                bridge::emit(&json!({"type": "reply", "ref": reference, "result": null,
+                                     "error": format!("invalid platform call: {error}")}));
+            }
             return;
         }
     };

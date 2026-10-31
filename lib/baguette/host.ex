@@ -19,6 +19,10 @@ defmodule Baguette.Host do
 
   @type window :: non_neg_integer()
 
+  # A platform call the host hasn't answered by then returns nil, before
+  # the caller's own timeout.
+  @call_timeout 9_000
+
   def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
   @doc """
@@ -60,9 +64,18 @@ defmodule Baguette.Host do
   @spec last_frame(window()) :: map() | nil
   def last_frame(window), do: GenServer.call(__MODULE__, {:last_frame, window})
 
-  @doc "Makes the calling process the owner of `window`'s events."
-  @spec own(window()) :: :ok
-  def own(window), do: GenServer.call(__MODULE__, {:own, window, self()})
+  @doc """
+  Makes the calling process the owner of `window`'s events. Owners are kept
+  in `Baguette.Registry`, so they outlive a restart of this process.
+  """
+  @spec own(window()) :: :ok | {:error, {:already_owned, pid()}}
+  def own(window) do
+    case Registry.register(Baguette.Registry, {:window, window}, nil) do
+      {:ok, _} -> :ok
+      {:error, {:already_registered, pid}} when pid == self() -> :ok
+      {:error, {:already_registered, pid}} -> {:error, {:already_owned, pid}}
+    end
+  end
 
   @doc false
   # Headless text entry: what was typed into the input at `path`, and the
@@ -76,7 +89,12 @@ defmodule Baguette.Host do
 
   @doc "The process that owns `window`'s events, or `nil`."
   @spec owner(window()) :: pid() | nil
-  def owner(window), do: GenServer.call(__MODULE__, {:owner, window})
+  def owner(window) do
+    case Registry.lookup(Baguette.Registry, {:window, window}) do
+      [{pid, _}] -> pid
+      [] -> nil
+    end
+  end
 
   @doc "Delivers `event` as if the native host had sent it."
   @spec dispatch(map()) :: :ok
@@ -97,7 +115,6 @@ defmodule Baguette.Host do
     {:ok,
      %{
        native: native,
-       owners: %{},
        frames: %{},
        rows: %{},
        typed: %{},
@@ -119,6 +136,13 @@ defmodule Baguette.Host do
       {:error, :components_mismatch} ->
         raise "the native host's component sets differ from the manifests " <>
                 "this release was compiled against; rebuild the release"
+
+      {:error, :abi_mismatch} ->
+        raise "the native host and Baguette's NIF come from different Baguette " <>
+                "versions; rebuild the release"
+
+      {:error, reason} ->
+        raise "could not attach to the native host: #{inspect(reason)}"
     end
   end
 
@@ -143,6 +167,7 @@ defmodule Baguette.Host do
     ref = state.next_call
     message = %{"call" => name, "ref" => ref, "args" => args}
     Baguette.Native.call(IO.iodata_to_binary(:json.encode(message)))
+    Process.send_after(self(), {:call_timeout, ref}, @call_timeout)
     {:noreply, %{state | calls: Map.put(state.calls, ref, from), next_call: ref + 1}}
   end
 
@@ -170,14 +195,6 @@ defmodule Baguette.Host do
   def handle_call({:rows_of, window}, _from, state),
     do: {:reply, Map.get(state.rows, window, %{}), state}
 
-  def handle_call({:owner, window}, _from, state),
-    do: {:reply, Map.get(state.owners, window), state}
-
-  def handle_call({:own, window, pid}, _from, state) do
-    Process.monitor(pid)
-    {:reply, :ok, put_in(state.owners[window], pid)}
-  end
-
   @impl true
   def handle_cast({:render, window, frame}, state) do
     if state.native, do: send_native(window, wire(state.frames[window], frame))
@@ -197,7 +214,7 @@ defmodule Baguette.Host do
   end
 
   def handle_cast({:event, event}, state) do
-    route(event, state)
+    route(event)
     {:noreply, state}
   end
 
@@ -222,14 +239,21 @@ defmodule Baguette.Host do
         {:noreply, %{state | calls: calls}}
 
       event ->
-        route(event, state)
+        route(event)
         {:noreply, state}
     end
   end
 
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, state) do
-    owners = for {window, owner} <- state.owners, owner != pid, into: %{}, do: {window, owner}
-    {:noreply, %{state | owners: owners}}
+  # The host never answered: the call returns nil, as a failed one does.
+  def handle_info({:call_timeout, ref}, state) do
+    {from, calls} = Map.pop(state.calls, ref)
+
+    if from do
+      Logger.warning("baguette: platform call #{ref} got no reply")
+      GenServer.reply(from, nil)
+    end
+
+    {:noreply, %{state | calls: calls}}
   end
 
   defp send_native(window, message),
@@ -260,10 +284,10 @@ defmodule Baguette.Host do
     end
   end
 
-  defp route(%{"window" => window} = event, state) do
-    case state.owners do
-      %{^window => pid} -> send(pid, {:baguette_event, event})
-      _ -> Logger.debug("baguette: event for unowned window #{window}")
+  defp route(%{"window" => window} = event) do
+    case owner(window) do
+      nil -> Logger.debug("baguette: event for unowned window #{window}")
+      pid -> send(pid, {:baguette_event, event})
     end
   end
 end
