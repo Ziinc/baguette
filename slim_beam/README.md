@@ -24,12 +24,11 @@ assembled release directory, so dev and test builds stay as they are.
 | Part | Default | Option |
 | --- | --- | --- |
 | Dependency modules that nothing reaches | on | `apps:`, `keep:`, `purge: false` |
-| ERTS executables, `include`, `lib`, `doc`, `man` | off | `erts: [keep: [...]]` |
 | `lib/*/src`, `lib/*/include`, `lib/*/doc` | on | `prune: [globs]` adds more |
 
 Every run writes `releases/<vsn>/slim_beam.json`: sizes before and after
 (total, per top-level directory, per app) and each removed path with its
-reason (`unreachable`, `erts` or `prune: <glob>`).
+reason (`unreachable` or `prune: <glob>`).
 
 ### Module purge
 
@@ -60,17 +59,6 @@ the `releases/<vsn>/*.script` files, and regenerates the `.boot` files.
 
 A module that is reached only by a computed name (`Module.concat/1`,
 `String.to_atom/1`, a name read from a file) is purged. Add it to `keep: [modules: [...]]`.
-
-### ERTS trim
-
-```elixir
-slim_beam: [erts: [keep: ["erl_child_setup", "inet_gethost"]]]
-```
-
-This keeps only those executables in `erts-*/bin` and drops
-`erts-*/include`, `lib`, `doc` and `man`. Without `erlexec` and `beam.smp`,
-the release's own `bin/<name>` can no longer start it. Use this only for a
-host that embeds the BEAM and boots the release itself.
 
 ## Test check
 
