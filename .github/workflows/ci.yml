@@ -106,7 +106,7 @@ jobs:
               BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
           done
           mix deps.get
-          xvfb-run -a mix test --only playwright
+          xvfb-run -a mix test --only playwright --trace
           # Tally drives its release with playwright_ex directly.
           (cd examples/playwright && xvfb-run -a mix test --only playwright)
         timeout-minutes: 30

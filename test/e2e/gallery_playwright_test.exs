@@ -12,9 +12,13 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
   @app Path.expand("../../examples/gallery/_build/prod/rel/gallery/bin/gallery_app", __DIR__)
 
   setup do
+    t0 = System.monotonic_time(:millisecond)
     app = Playwright.start_app!(@app, port: 9338)
+    t1 = System.monotonic_time(:millisecond)
     on_exit(fn -> Playwright.stop_app(app) end)
-    %{page: Playwright.connect!(app), app: app}
+    page = Playwright.connect!(app)
+    IO.puts("DIAG start_app #{t1 - t0}ms connect #{System.monotonic_time(:millisecond) - t1}ms")
+    %{page: page, app: app}
   end
 
   test "gpui-kit components draw natively", %{page: page} do
@@ -55,7 +59,7 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Palette open")
   end
 
-  test "platform calls: clipboard, window title, a second window", %{page: page} do
+  test "platform calls: clipboard, window title, a second window", %{page: page, app: app} do
     assert :ok = Playwright.await_text(page, "Appearance: light")
 
     Playwright.click(page, "Copy")
@@ -65,8 +69,12 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     Playwright.click(page, "Rename")
     assert :ok = Playwright.await_text(page, "Title: Gallery renamed")
 
-    Playwright.click(page, "Details")
-    assert :ok = Playwright.await_text(page, "Details open")
+    try do
+      Playwright.click(page, "Details")
+      assert :ok = Playwright.await_text(page, "Details open")
+    after
+      IO.puts("DIAG app log:\n" <> Playwright.log(app))
+    end
   end
 
   test "a canvas paints its shapes; pulse animates", %{page: page} do
