@@ -186,6 +186,23 @@ tests both read it, so the two sides can't drift apart.
   is committed and builds use stable Rust. Run the task again after a
   GPUI bump.
 
+## Precompiled host and NIF
+
+`mix release` compiles no Rust for an app on the default host (gpui-kit's
+component set, no `host_features`):
+
+- `Baguette.Release.host_source/2` picks the host: `BAGUETTE_HOST_BINARY`, or
+  the precompiled `baguette_host-v<vsn>-OTP-<otp>-<target>.tar.gz` from
+  the version's GitHub release (`host.yml`), checked against
+  `priv/host.sha256`. Another component set, any host feature (such as
+  `playwright`), `BAGUETTE_BUILD_HOST=1`, or a version without pinned
+  checksums builds it with Cargo.
+- `bundle/1` runs `tauri bundle` on the installed host, so bundling
+  compiles nothing either. The host finds the release by its own path
+  (`/usr/lib/<name>/release`, `Contents/Resources/release`), since a
+  precompiled binary doesn't know its app's name.
+- The NIF is precompiled with rustler_precompiled (`nif.yml`).
+
 ## Next, in order
 
 Each step is test first: Rust unit tests, Baguette.Test, then one
