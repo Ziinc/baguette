@@ -11,8 +11,8 @@ defmodule SlimBeam.Report do
                      "bytes": 1234, "reason": "unreachable"}]
       }
 
-  A reason is `"unreachable"` for a purged module, `"erts"` for the ERTS
-  trim and `"prune: <glob>"` for a pruned file.
+  A reason is `"unreachable"` for a purged module and `"prune: <glob>"` for
+  a pruned file.
   """
 
   alias SlimBeam.Files
