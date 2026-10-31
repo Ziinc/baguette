@@ -923,8 +923,8 @@ pub struct Root {
     focus: HashMap<String, gpui::FocusHandle>,
     /// When each animated element first rendered.
     animations: crate::animation::Clock,
-    /// Key bindings already given to GPUI, which has no way to remove one.
-    bound: HashSet<crate::keymap::Binding>,
+    /// Set when a patch didn't fit: patches wait for the whole frame.
+    desynced: bool,
     body: Option<gpui::FocusHandle>,
     /// Subscriptions that live as long as the window.
     kept: Vec<Subscription>,
@@ -979,7 +979,8 @@ impl Root {
             apply_theme(&frame.theme, cx);
         }
         self.reset_lists(std::mem::take(&mut frame.lists));
-        self.bind(&frame.keymap, cx);
+        crate::keymap::set(self.window, &frame.keymap, cx);
+        self.desynced = false;
         self.frame = frame;
         cx.notify();
     }
@@ -988,30 +989,22 @@ impl Root {
         self.kept.push(subscription);
     }
 
-    fn bind(&mut self, keymap: &[crate::keymap::Binding], cx: &mut gpui::App) {
-        for binding in keymap {
-            if self.bound.contains(binding) {
-                continue;
-            }
-            match crate::keymap::key_binding(binding, cx.keyboard_mapper().as_ref()) {
-                Ok(key) => cx.bind_keys([key]),
-                Err(error) => crate::log_line(&format!("baguette: keymap: {error}")),
-            }
-            self.bound.insert(binding.clone());
-        }
-    }
-
     /// Applies a patch to the frame shown. One that doesn't fit leaves it
-    /// part patched, and asks Elixir for the whole frame.
+    /// part patched and asks Elixir for the whole frame; the patches before
+    /// that frame arrives were diffed against another tree, and are dropped.
     pub fn patch(
         &mut self,
         ops: Vec<crate::patch::Op>,
         lists: HashMap<String, Segment>,
         cx: &mut gpui::Context<Self>,
     ) {
+        if self.desynced {
+            return;
+        }
         if let Err(error) = crate::patch::apply(&mut self.frame.root, ops) {
             crate::log_line(&format!("baguette: patch failed ({error}); resyncing"));
             bridge::emit(&json!({"type": "resync", "window": self.window}));
+            self.desynced = true;
         }
         self.reset_lists(lists);
         cx.notify();
@@ -1102,7 +1095,7 @@ impl Root {
             lists: HashMap::new(),
             focus: HashMap::new(),
             animations: crate::animation::Clock::default(),
-            bound: HashSet::new(),
+            desynced: false,
             body: None,
             kept: Vec::new(),
             forms: HashMap::new(),
@@ -1377,6 +1370,7 @@ impl gpui::Render for Root {
         let body_div = gpui::div()
             .id("body")
             .size_full()
+            .key_context(crate::keymap::window_context(window_id).as_str())
             .on_action(move |action: &crate::keymap::ElixirAction, _, _| {
                 bridge::emit(&json!({
                     "type": "action",

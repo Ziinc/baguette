@@ -1,11 +1,13 @@
 //! Keymaps from Elixir (`keymap` in `Baguette.View`) as GPUI key bindings,
 //! and the one action type they all dispatch.
 
+use std::collections::BTreeMap;
 use std::rc::Rc;
 
 use serde::Deserialize;
 use tauri_plugin_gpui::gpui::{
-    self, Action, KeyBinding, KeyBindingContextPredicate, PlatformKeyboardMapper, SharedString,
+    self, Action, Global, KeyBinding, KeyBindingContextPredicate, PlatformKeyboardMapper,
+    SharedString,
 };
 
 /// A binding as a frame carries it.
@@ -45,6 +47,60 @@ impl Action for ElixirAction {
 
     fn build(value: serde_json::Value) -> gpui::Result<Box<dyn Action>> {
         Ok(Box::new(serde_json::from_value::<Self>(value)?))
+    }
+}
+
+/// The key context of window `window`'s content, which scopes its view's
+/// bindings to that window.
+pub fn window_context(window: u32) -> String {
+    format!("baguette-window-{window}")
+}
+
+/// Every window's bindings. GPUI's keymap is the app's, so each is scoped
+/// to its window and the whole set is bound again when one changes.
+#[derive(Default)]
+struct Keymaps(BTreeMap<u32, Vec<Binding>>);
+
+impl Global for Keymaps {}
+
+/// Makes `bindings` window `window`'s, replacing the ones it had.
+pub fn set(window: u32, bindings: &[Binding], cx: &mut gpui::App) {
+    let keymaps = cx.default_global::<Keymaps>();
+    if keymaps.0.get(&window).map(Vec::as_slice).unwrap_or(&[]) == bindings {
+        return;
+    }
+    keymaps.0.insert(window, bindings.to_vec());
+    let all = keymaps.0.clone();
+    let mapper = cx.keyboard_mapper().clone();
+    let ours: Vec<KeyBinding> = all
+        .iter()
+        .flat_map(|(window, bindings)| bindings.iter().map(|b| scoped(*window, b)))
+        .filter_map(|binding| {
+            key_binding(&binding, mapper.as_ref())
+                .map_err(|error| crate::log_line(&format!("baguette: keymap: {error}")))
+                .ok()
+        })
+        .collect();
+    let others: Vec<KeyBinding> = cx
+        .key_bindings()
+        .borrow()
+        .bindings()
+        .filter(|key| key.action().name() != ElixirAction::name_for_type())
+        .cloned()
+        .collect();
+    cx.clear_key_bindings();
+    cx.bind_keys(others.into_iter().chain(ours));
+}
+
+/// `binding`, firing only inside window `window`.
+fn scoped(window: u32, binding: &Binding) -> Binding {
+    let window = window_context(window);
+    Binding {
+        context: Some(match &binding.context {
+            Some(context) => format!("{window} > ({context})"),
+            None => window,
+        }),
+        ..binding.clone()
     }
 }
 
@@ -104,6 +160,20 @@ mod tests {
     fn rejects_what_gpui_cant_parse() {
         assert!(key_binding(&binding("", None), &DummyKeyboardMapper).is_err());
         assert!(key_binding(&binding("k", Some("Jobs &&")), &DummyKeyboardMapper).is_err());
+    }
+
+    #[test]
+    fn scopes_bindings_to_their_window() {
+        assert_eq!(
+            scoped(2, &binding("escape", None)).context.as_deref(),
+            Some("baguette-window-2")
+        );
+        let jobs = scoped(0, &binding("secondary-k", Some("Jobs && !Editing")));
+        assert_eq!(
+            jobs.context.as_deref(),
+            Some("baguette-window-0 > (Jobs && !Editing)")
+        );
+        assert!(key_binding(&jobs, &DummyKeyboardMapper).is_ok());
     }
 
     #[test]
