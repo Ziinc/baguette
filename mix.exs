@@ -10,6 +10,7 @@ defmodule Baguette.MixProject do
       version: @version,
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       deps: deps(),
       description: "Native GPUI applications written in Elixir.",
       source_url: @source_url,
@@ -21,11 +22,17 @@ defmodule Baguette.MixProject do
     [extra_applications: [:logger], mod: {Baguette.Application, []}]
   end
 
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
   defp deps do
     [
       {:rustler, "~> 0.38"},
       {:phoenix_live_view, "~> 1.2"},
-      {:floki, "~> 0.38"}
+      {:floki, "~> 0.38"},
+      # Baguette.Playwright: end-to-end tests through gpui-playwright.
+      {:playwright_ex, "~> 0.15", optional: true},
+      {:websockex, "~> 0.4", optional: true}
     ]
   end
 end

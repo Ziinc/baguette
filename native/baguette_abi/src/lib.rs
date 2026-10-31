@@ -9,7 +9,7 @@
 use std::ffi::c_void;
 
 /// Bumped whenever [`HostApi`] or [`EventSink`] changes shape.
-pub const ABI_VERSION: u32 = 1;
+pub const ABI_VERSION: u32 = 3;
 
 /// Called by the host, on its UI thread, for every UI event.
 pub type EventSinkFn = extern "C" fn(ctx: *mut c_void, json: *const u8, len: usize);
@@ -32,6 +32,13 @@ pub struct HostApi {
     pub render: extern "C" fn(ctx: *mut c_void, window: u32, json: *const u8, len: usize),
     /// Installs the sink events are delivered to. A later call replaces it.
     pub set_event_sink: extern "C" fn(ctx: *mut c_void, sink: EventSink),
+    /// Checks the native component sets Elixir was compiled against (JSON,
+    /// set name to manifest hash) against the host's. On a mismatch the
+    /// host shows why, ignores renders and returns `false`.
+    pub check_components: extern "C" fn(ctx: *mut c_void, json: *const u8, len: usize) -> bool,
+    /// A platform call (JSON `{"call", "ref", "args"}`). The host runs it on
+    /// its UI thread and replies with a `reply` event carrying `ref`.
+    pub call: extern "C" fn(ctx: *mut c_void, json: *const u8, len: usize),
 }
 
 // SAFETY: `HostApi` is only ever shared by address and its functions are

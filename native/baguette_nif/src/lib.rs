@@ -13,6 +13,7 @@ mod atoms {
         baguette_event,
         already_attached,
         abi_mismatch,
+        components_mismatch,
         not_attached,
     }
 }
@@ -42,13 +43,18 @@ extern "C" fn deliver(_ctx: *mut c_void, json: *const u8, len: usize) {
 
 /// Binds the host at `address` to the calling process, which then receives
 /// `{:baguette_event, json}` for every UI event. Only one process may attach.
+/// `components` (JSON, set name to manifest hash) are the native component
+/// sets Elixir was compiled against; the host refuses ones it has otherwise.
 #[rustler::nif]
-fn attach(env: Env, address: u64) -> NifResult<rustler::Atom> {
+fn attach(env: Env, address: u64, components: Binary) -> NifResult<rustler::Atom> {
     // SAFETY: the host put the address of its `'static` HostApi on the BEAM
     // command line; Elixir passes it through unchanged.
     let host = unsafe { &*(address as usize as *const HostApi) };
     if host.abi_version != ABI_VERSION {
         return Err(rustler::Error::Term(Box::new(atoms::abi_mismatch())));
+    }
+    if !(host.check_components)(host.ctx, components.as_ptr(), components.len()) {
+        return Err(rustler::Error::Term(Box::new(atoms::components_mismatch())));
     }
     let attached = Attached {
         host,
@@ -64,6 +70,16 @@ fn attach(env: Env, address: u64) -> NifResult<rustler::Atom> {
             call: deliver,
         },
     );
+    Ok(atoms::ok())
+}
+
+/// Sends the host a platform call; its reply arrives as an event.
+#[rustler::nif]
+fn call(json: Binary) -> NifResult<rustler::Atom> {
+    let Some(attached) = ATTACHED.get() else {
+        return Err(rustler::Error::Term(Box::new(atoms::not_attached())));
+    };
+    (attached.host.call)(attached.host.ctx, json.as_ptr(), json.len());
     Ok(atoms::ok())
 }
 

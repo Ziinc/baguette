@@ -7,16 +7,30 @@
 
 mod beam;
 mod bridge;
+pub mod components;
+#[cfg(test)]
+mod icon_select;
+mod keymap;
+mod list;
+mod paint;
+mod patch;
+/// The icons this build embeds (`build.rs`, `icon_select.rs`).
+mod icons {
+    include!(concat!(env!("OUT_DIR"), "/icons.rs"));
+}
+#[cfg(feature = "api-pick")]
+mod pick;
+mod platform;
 #[cfg(feature = "playwright")]
 mod playwright;
 mod style;
+mod style_gen;
 mod view;
+mod windows;
 
-use tauri_plugin_gpui::{GpuiWindowExt, gpui::AppContext};
+use crate::view::{Frame, Node};
 
-use crate::view::{Frame, Node, Root};
-
-fn notice(text: String) -> Frame {
+pub(crate) fn notice(text: String) -> Frame {
     Frame {
         root: Some(Node::Element {
             tag: "div".into(),
@@ -41,10 +55,18 @@ pub fn run() {
     );
     #[cfg(target_os = "android")]
     beam::android::log_stdio();
-    let (host, renders) = bridge::install();
+    let (host, inbox) = bridge::install();
 
-    tauri::Builder::default()
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "api-pick")]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "api-open-url")]
+    let builder = builder.plugin(tauri_plugin_opener::init());
+    builder
+        .on_menu_event(|_, event| platform::on_menu_event(event))
         .setup(move |app| {
+            #[cfg(feature = "api-pick")]
+            pick::install(app.handle().clone());
             use tauri::Manager;
             #[cfg(not(target_os = "android"))]
             let release = beam::Release::locate(app.path().resource_dir().ok());
@@ -57,68 +79,49 @@ pub fn run() {
                 .map_err(|e| e.to_string())
                 .and_then(|dir| beam::android::unpack(&dir))
                 .and_then(|root| beam::Release::locate_at(root));
-            #[cfg(not(feature = "playwright"))]
-            tauri_plugin_gpui::init(app)?;
-            #[cfg(feature = "playwright")]
+            let handle = app.handle().clone();
+            let bridge::Inbox { renders, calls } = inbox;
             tauri_plugin_gpui::init_with(
                 app,
                 tauri_plugin_gpui::GpuiConfig::new()
-                    .assets(gpui_kit::assets::Assets)
-                    .on_launch(|cx| {
+                    // gpui-kit's icons (a checkbox's tick, an input's clear button).
+                    // and every lucide icon, for `<icon name="...">`.
+                    .assets(icons::Icons)
+                    .on_launch(move |cx| {
+                        // gpui-kit's components: text inputs and checkboxes.
                         gpui_kit::init(cx);
+                        #[cfg(feature = "playwright")]
                         playwright::start(cx);
+                        cx.spawn(async move |cx| {
+                            let mut first = true;
+                            while let Ok(msg) = renders.recv().await {
+                                if std::mem::take(&mut first) {
+                                    log_line("baguette: first frame from Elixir");
+                                }
+                                cx.update(|cx| windows::route(msg, cx));
+                            }
+                        })
+                        .detach();
+                        cx.spawn(async move |cx| {
+                            while let Ok(json) = calls.recv().await {
+                                cx.update(|cx| platform::handle(&json, &handle, cx));
+                            }
+                        })
+                        .detach();
                     }),
             )?;
-            let (title, (width, height)) = match &release {
+            let (title, size) = match &release {
                 Ok(r) => (
                     r.window.title.clone().unwrap_or(r.name.clone()),
                     (r.window.width, r.window.height),
                 ),
                 Err(_) => ("Baguette".into(), (480.0, 360.0)),
             };
-            let window = tauri::WindowBuilder::new(app, "main")
-                .title(title)
-                .inner_size(width, height)
-                .build()?;
-
             let frame = match &release {
                 Ok(_) => Frame::default(),
                 Err(error) => notice(format!("No Elixir release to run: {error}")),
             };
-            let build = move |cx: &mut tauri_plugin_gpui::gpui::App| {
-                let root = cx.new(|_| Root { window: 0, frame });
-                let handle = root.clone();
-                cx.spawn(async move |cx| {
-                    let mut first = true;
-                    while let Ok(msg) = renders.recv().await {
-                        // One window for now: the BEAM renders window 0.
-                        if msg.window != 0 {
-                            continue;
-                        }
-                        if std::mem::take(&mut first) {
-                            log_line("baguette: first frame from Elixir");
-                        }
-                        let frame = match serde_json::from_slice::<Frame>(&msg.json) {
-                            Ok(frame) => frame,
-                            Err(error) => notice(format!("Invalid render from Elixir: {error}")),
-                        };
-                        handle.update(cx, |root, cx| {
-                            root.frame = frame;
-                            cx.notify();
-                        });
-                    }
-                })
-                .detach();
-                root
-            };
-            // Playwright reads painted text under gpui-kit's `Root`.
-            #[cfg(feature = "playwright")]
-            window.attach_gpui_view(Default::default(), move |window, cx| {
-                let root = build(cx);
-                cx.new(|cx| gpui_kit::base::Root::new(root, window, cx))
-            })?;
-            #[cfg(not(feature = "playwright"))]
-            window.attach_gpui(build)?;
+            windows::open(app.handle(), 0, &title, size, frame)?;
 
             if let Ok(release) = release {
                 beam::start(release, host)?;

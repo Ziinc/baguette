@@ -1,17 +1,12 @@
-//! Serves the Playwright protocol from inside the app, so stock Playwright
-//! clients drive it like a browser page: `GPUI_PLAYWRIGHT=9333` starts the
-//! server on `ws://127.0.0.1:9333/`. Elements come from the view tree's roles,
-//! `aria-label`s and text (see `view.rs`).
+//! Serves the app's windows to Playwright clients (the `playwright` feature).
+//! The server only starts when `GPUI_PLAYWRIGHT` is set, such as `9333`;
+//! `GPUI_PLAYWRIGHT_ENDPOINT_FILE` names a file it writes its endpoint to.
 
-use tauri_plugin_gpui::gpui::App;
-
-pub fn start(cx: &mut App) {
-    let Some(server) = gpui_playwright::Server::from_env() else {
-        return;
-    };
-    if let Err(error) = server.start(cx) {
-        crate::log_line(&format!(
-            "baguette: gpui-playwright failed to start: {error}"
-        ));
+pub fn start(cx: &mut tauri_plugin_gpui::gpui::App) {
+    if let Some(server) = gpui_playwright::Server::from_env() {
+        match server.start(cx) {
+            Ok(endpoint) => crate::log_line(&format!("baguette: playwright on {endpoint}")),
+            Err(error) => crate::log_line(&format!("baguette: playwright failed: {error}")),
+        }
     }
 }

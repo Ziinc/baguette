@@ -1,0 +1,117 @@
+name: liberlang
+
+# Prebuilt BEAMs that `mix release` downloads (see Baguette.Release): one
+# archive per target, published once per OTP version as the GitHub release
+# `liberlang-OTP-<version>`. A published release is never rebuilt, so the
+# checksums pinned in priv/liberlang.sha256 stay valid; pin them from the
+# publish job's summary.
+
+on:
+  push:
+    branches: [main]
+    paths: [scripts/build-liberlang*.sh, .github/workflows/liberlang.yml]
+  pull_request:
+    paths: [scripts/build-liberlang*.sh, .github/workflows/liberlang.yml]
+  workflow_dispatch:
+
+env:
+  OTP_TAG: OTP-29.1.2
+  NDK_VERSION: 27.2.12479018
+  LANG: C.UTF-8
+
+jobs:
+  desktop:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The oldest supported runners, so the archive links on older glibc.
+          - { target: x86_64-linux, runner: ubuntu-22.04 }
+          - { target: aarch64-linux, runner: ubuntu-22.04-arm }
+          - { target: aarch64-macos, runner: macos-15 }
+          - { target: x86_64-macos, runner: macos-15-intel }
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: |
+          if [ "$(uname)" = Darwin ]; then
+            brew install openssl@3
+          else
+            sudo apt-get update && sudo apt-get install -y libncurses-dev libssl-dev
+          fi
+      - run: scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang
+      - name: Archive
+        run: |
+          asset=liberlang-$OTP_TAG-${{ matrix.target }}.tar.gz
+          tar -czf "$asset" -C ~/liberlang liberlang.a
+          ls -la "$asset"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liberlang-${{ matrix.target }}
+          path: liberlang-*.tar.gz
+
+  android:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { target: x86_64-linux-android, arch: x86_64 }
+          - { target: aarch64-linux-android, arch: arm64 }
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29.1.2"
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install NDK
+        run: |
+          sdkmanager --install "ndk;$NDK_VERSION"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+      - run: scripts/build-liberlang-android.sh "$OTP_TAG" ${{ matrix.arch }} ~/liberlang
+      - name: Archive
+        run: |
+          asset=liberlang-$OTP_TAG-${{ matrix.target }}.tar.gz
+          tar -czf "$asset" -C ~/liberlang liberlang.so erl_child_setup inet_gethost
+          ls -la "$asset"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: liberlang-${{ matrix.target }}
+          path: liberlang-*.tar.gz
+
+  publish:
+    if: github.event_name != 'pull_request'
+    needs: [desktop, android]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: liberlang-*
+          merge-multiple: true
+          path: assets
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=liberlang-$OTP_TAG
+          cd assets
+          if gh release view "$tag" >/dev/null 2>&1; then
+            echo "::notice::$tag is already published; not replacing it."
+            exit 0
+          fi
+          gh release create "$tag" --target "$GITHUB_SHA" --title "Prebuilt BEAM, $OTP_TAG" \
+            --notes "liberlang for each target, downloaded by \`mix release\`." ./*.tar.gz
+          {
+            echo "Pin these in \`priv/liberlang.sha256\`:"
+            echo '```'
+            sha256sum ./*.tar.gz | sed 's| \./| |'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

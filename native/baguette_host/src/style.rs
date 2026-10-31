@@ -76,9 +76,14 @@ fn apply_one<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         "justify-end" => s.justify_end(),
         "justify-between" => s.justify_between(),
         "size-full" => s.size_full(),
+        "relative" => s.relative(),
+        "absolute" => s.absolute(),
         "w-full" => s.w_full(),
         "h-full" => s.h_full(),
         "overflow-hidden" => s.overflow_hidden(),
+        // Scrolling needs the element's id, so the view applies these.
+        "overflow-scroll" | "overflow-auto" | "overflow-x-scroll" | "overflow-x-auto"
+        | "overflow-y-scroll" | "overflow-y-auto" => s,
         "border" => s.border_1(),
         "rounded" => s.rounded(px(4.)),
         "rounded-sm" => s.rounded(px(2.)),
@@ -125,8 +130,8 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         }
     }
     const SPACING: &[&str] = &[
-        "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr", "mx", "my", "mt", "mb", "p",
-        "m", "w", "h",
+        "max-w", "max-h", "min-h", "min-w", "size", "gap", "px", "py", "pt", "pb", "pl", "pr",
+        "mx", "my", "mt", "mb", "p", "m", "w", "h", "left", "top", "right", "bottom",
     ];
     for name in SPACING {
         if let Some(len) = class
@@ -152,6 +157,13 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
                 "w" => s.w(len),
                 "h" => s.h(len),
                 "size" => s.size(len),
+                "max-w" => s.max_w(len),
+                "max-h" => s.max_h(len),
+                "min-h" => s.min_h(len),
+                "left" => s.left(len),
+                "top" => s.top(len),
+                "right" => s.right(len),
+                "bottom" => s.bottom(len),
                 _ => s.min_w(len),
             };
         }
@@ -169,7 +181,18 @@ fn apply_parametric<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
             };
         }
     }
-    unknown(s, class)
+    generated(s, class)
+}
+
+/// A class named for one of `Styled`'s methods (`style_gen.rs`).
+fn generated<S: Styled>(mut s: S, class: &str) -> S {
+    match crate::style_gen::refinement(class) {
+        Some(refinement) => {
+            tauri_plugin_gpui::gpui::Refineable::refine(s.style(), &refinement);
+            s
+        }
+        None => unknown(s, class),
+    }
 }
 
 /// Tailwind's spacing scale in pixels: `4` is 16px, `px` is 1px, and
@@ -184,7 +207,7 @@ fn spacing(value: &str) -> Option<f32> {
     }
 }
 
-fn color(value: &str, theme: &Theme) -> Option<Hsla> {
+pub fn color(value: &str, theme: &Theme) -> Option<Hsla> {
     let (value, alpha) = match value.rsplit_once('/') {
         Some((value, alpha)) => (value, alpha.parse::<f32>().ok()? / 100.),
         None => (value, 1.),
@@ -224,8 +247,19 @@ fn hex_color(hex: &str) -> Option<Rgba> {
     }
 }
 
+/// The unsupported classes reported so far.
+static REPORTED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
+
+#[cfg(test)]
+fn reported(class: &str) -> bool {
+    REPORTED
+        .lock()
+        .unwrap()
+        .as_ref()
+        .is_some_and(|r| r.contains(class))
+}
+
 fn unknown<S>(s: S, class: &str) -> S {
-    static REPORTED: Mutex<Option<HashSet<String>>> = Mutex::new(None);
     let mut reported = REPORTED.lock().unwrap();
     if reported.get_or_insert_default().insert(class.to_owned()) {
         eprintln!("baguette: unsupported class `{class}`");
@@ -265,6 +299,61 @@ mod tests {
         assert_eq!(color("[#ff0000]", &theme), Some(Hsla::from(rgb(0xff0000))));
         assert_eq!(color("white/50", &theme).map(|c| c.a), Some(0.5));
         assert_eq!(color("missing", &theme), None);
+    }
+
+    #[test]
+    fn scroll_classes_are_supported() {
+        // The view makes these elements scroll (it needs their id); styling
+        // must not report them.
+        for class in [
+            "overflow-scroll",
+            "overflow-auto",
+            "overflow-x-scroll",
+            "overflow-x-auto",
+            "overflow-y-scroll",
+            "overflow-y-auto",
+        ] {
+            apply(
+                tauri_plugin_gpui::gpui::div(),
+                [class].into_iter(),
+                &Theme::new(),
+            );
+            assert!(!reported(class), "{class} reported as unsupported");
+        }
+        apply(
+            tauri_plugin_gpui::gpui::div(),
+            ["overflow-sideways"].into_iter(),
+            &Theme::new(),
+        );
+        assert!(reported("overflow-sideways"));
+    }
+
+    // `style_gen.rs`, from `mix baguette.styles`.
+    #[test]
+    fn styled_methods_are_classes_too() {
+        use crate::style_gen::refinement;
+        for class in [
+            "w-1/2",
+            "-mt-2",
+            "p-0.5",
+            "rounded-t-lg",
+            "cursor-grab",
+            "gap-x-3",
+        ] {
+            assert!(refinement(class).is_some(), "{class}");
+        }
+        // Outside the stable categories, or not a method without arguments.
+        for class in ["debug", "visible", "bg", "w"] {
+            assert!(refinement(class).is_none(), "{class}");
+        }
+        for class in ["rounded-tl-xl", "inset-0", "whitespace-nowrap"] {
+            apply(
+                tauri_plugin_gpui::gpui::div(),
+                [class].into_iter(),
+                &Theme::new(),
+            );
+            assert!(!reported(class), "{class} reported as unsupported");
+        }
     }
 
     #[test]
