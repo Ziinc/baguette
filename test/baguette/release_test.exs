@@ -85,4 +85,25 @@ defmodule Baguette.ReleaseTest do
     assert Release.host_asset("V", "X", "T") == "baguette_host-vV-OTP-X-T.tar.gz"
     assert workflow =~ "OTP_TAG: OTP-"
   end
+
+  @tag :tmp_dir
+  test "trim_erts!/1 keeps only the programs the host's BEAM starts", %{tmp_dir: root} do
+    erts = Path.join(root, "erts-17.1.1")
+
+    for file <- ~w(bin/beam.smp bin/erlexec bin/epmd bin/erl_child_setup bin/inet_gethost
+                   include/erl_nif.h lib/liberts.a doc/README man/man1/erl.1) do
+      File.mkdir_p!(Path.dirname(Path.join(erts, file)))
+      File.write!(Path.join(erts, file), "x")
+    end
+
+    Release.trim_erts!(root)
+
+    assert Enum.sort(File.ls!(Path.join(erts, "bin"))) == ["erl_child_setup", "inet_gethost"]
+    assert File.ls!(erts) == ["bin"]
+  end
+
+  @tag :tmp_dir
+  test "trim_erts!/1 leaves a release without ERTS alone", %{tmp_dir: root} do
+    assert Release.trim_erts!(root) == :ok
+  end
 end
