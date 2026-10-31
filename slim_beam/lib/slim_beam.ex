@@ -47,6 +47,12 @@ defmodule SlimBeam do
 
   The step writes `releases/<vsn>/slim_beam.json`: sizes before and after,
   and each file removed with the reason (see `SlimBeam.Report`).
+
+  ## Test check
+
+  `ExUnit.after_suite(&SlimBeam.Check.loaded!/1)` in `test_helper.exs` fails
+  `mix test` when the suite loads a module the release would purge (see
+  `SlimBeam.Check`).
   """
 
   alias SlimBeam.Report

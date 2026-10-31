@@ -50,33 +50,7 @@ defmodule SlimBeam.Purge do
         _ -> []
       end
 
-    runtime = Path.join(version_path, "runtime.exs")
-
-    runtime =
-      if File.regular?(runtime) do
-        {_, atoms} =
-          runtime
-          |> File.read!()
-          |> Code.string_to_quoted!()
-          |> Macro.prewalk([], fn
-            {:__aliases__, _, parts} = ast, acc ->
-              if Enum.all?(parts, &is_atom/1),
-                do: {ast, [Module.concat(parts) | acc]},
-                else: {ast, acc}
-
-            atom, acc when is_atom(atom) ->
-              {atom, [atom | acc]}
-
-            ast, acc ->
-              {ast, acc}
-          end)
-
-        atoms
-      else
-        []
-      end
-
-    sys_config ++ runtime
+    sys_config ++ Plan.exs_atoms(Path.join(version_path, "runtime.exs"))
   end
 
   defp rewrite_app(release, app, modules) do

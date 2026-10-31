@@ -152,6 +152,37 @@ defmodule SlimBeam.Plan do
   defp literals(<<size::32, term::binary-size(size), rest::binary>>, acc),
     do: literals(rest, [:erlang.binary_to_term(term) | acc])
 
+  @doc """
+  The modules and atoms an `.exs` file names, read without running it, as
+  in `config/runtime.exs`. A missing file names none.
+  """
+  @spec exs_atoms(Path.t()) :: [atom()]
+  def exs_atoms(path) do
+    case File.read(path) do
+      {:ok, source} ->
+        {_, atoms} =
+          source
+          |> Code.string_to_quoted!()
+          |> Macro.prewalk([], fn
+            {:__aliases__, _, parts} = ast, acc ->
+              if Enum.all?(parts, &is_atom/1),
+                do: {ast, [Module.concat(parts) | acc]},
+                else: {ast, acc}
+
+            atom, acc when is_atom(atom) ->
+              {atom, [atom | acc]}
+
+            ast, acc ->
+              {ast, acc}
+          end)
+
+        atoms
+
+      {:error, _} ->
+        []
+    end
+  end
+
   @doc false
   def atoms(term), do: term |> atoms([]) |> Enum.uniq()
 
