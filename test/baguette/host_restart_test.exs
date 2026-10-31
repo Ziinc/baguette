@@ -27,7 +27,9 @@ defmodule Baguette.HostRestartTest do
 
   defp wait_for_restart(old) do
     case Process.whereis(Host) do
-      pid when is_pid(pid) and pid != old -> :ok
+      pid when is_pid(pid) and pid != old ->
+        :ok
+
       _ ->
         Process.sleep(10)
         wait_for_restart(old)
