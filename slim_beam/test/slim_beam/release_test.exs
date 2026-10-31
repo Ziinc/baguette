@@ -49,6 +49,22 @@ defmodule SlimBeam.ReleaseTest do
     assert Path.wildcard(Path.join(path, "lib/*/include")) == []
   end
 
+  test "writes a report of what was removed and why", %{path: path} do
+    [json] = Path.wildcard(Path.join(path, "releases/*/slim_beam.json"))
+    report = json |> File.read!() |> JSON.decode!()
+
+    assert report["before"]["total"] > report["after"]["total"]
+    assert report["before"]["apps"]["demo_dep"] > report["after"]["apps"]["demo_dep"]
+
+    assert %{
+             "path" => "lib/demo_dep-0.1.0/ebin/Elixir.DemoDep.Unused.beam",
+             "reason" => "unreachable"
+           } =
+             Enum.find(report["removed"], &(&1["path"] =~ "DemoDep.Unused.beam"))
+
+    assert Enum.any?(report["removed"], &(&1["reason"] == "prune: lib/*/include"))
+  end
+
   test "the slimmed release evals", %{path: path} do
     assert {out, 0} = Fixture.run(path, ["eval", "IO.puts(Demo.hello())"])
     assert out =~ "hello,configured,runtime,safe,struct 1"
