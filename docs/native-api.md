@@ -194,7 +194,9 @@ component set, no `host_features`):
 - `Baguette.Release.host_source/2` picks the host: `BAGUETTE_HOST_BINARY`, or
   the precompiled `baguette_host-v<vsn>-OTP-<otp>-<target>.tar.gz` from
   the version's GitHub release (`host.yml`), checked against
-  `priv/host.sha256`. Another component set, any host feature (such as
+  `priv/host.sha256`. It is built with the `dist` profile (fat LTO,
+  `opt-level = "s"`): 33 MB on Linux instead of the 107 MB of a plain
+  release build. Another component set, any host feature (such as
   `playwright`), `BAGUETTE_BUILD_HOST=1`, or a version without pinned
   checksums builds it with Cargo.
 - `bundle/1` runs `tauri bundle` on the installed host, so bundling

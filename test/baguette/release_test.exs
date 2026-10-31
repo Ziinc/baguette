@@ -62,4 +62,15 @@ defmodule Baguette.ReleaseTest do
     assert Release.host_asset("V", "X", "T") == "baguette_host-vV-OTP-X-T.tar.gz"
     assert workflow =~ "OTP_TAG: OTP-"
   end
+
+  test "precompiled hosts are built for size, with the dist profile" do
+    workflow = File.read!(".github/workflows/host.yml")
+    assert workflow =~ "cargo build --profile dist -p baguette_host"
+    assert workflow =~ "native/target/dist baguette_host"
+
+    cargo = File.read!("native/Cargo.toml")
+
+    assert cargo =~
+             ~r/\[profile\.dist\]\ninherits = "release"\nlto = "fat"\ncodegen-units = 1\nopt-level = "s"/
+  end
 end

@@ -56,13 +56,13 @@ jobs:
           scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
       - name: Build the host
         working-directory: native
-        run: BAGUETTE_LIBERLANG=$HOME/liberlang cargo build --release -p baguette_host
+        run: BAGUETTE_LIBERLANG=$HOME/liberlang cargo build --profile dist -p baguette_host
       - name: Package
         run: |
           version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
           asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz"
           mkdir -p out
-          tar -czf "out/$asset" -C native/target/release baguette_host
+          tar -czf "out/$asset" -C native/target/dist baguette_host
       - uses: actions/upload-artifact@v4
         with:
           name: host-${{ matrix.target }}
