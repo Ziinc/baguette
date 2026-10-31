@@ -8,7 +8,10 @@ defmodule Baguette.Release do
 
   The step builds the native host (`native/baguette_host`) and installs it as
   `bin/<release>_app`. Run that executable to start the app; it boots this
-  release inside the host on the BEAM it links.
+  release inside the host on the BEAM it links. Since the host never runs
+  `beam.smp` or `erlexec`, the step trims the release's ERTS to the two
+  programs that BEAM starts (`trim_erts!/1`), so `bin/<release>` no longer
+  works.
 
   Host Cargo features are a release option:
 
@@ -37,6 +40,9 @@ defmodule Baguette.Release do
 
   # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
   @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
+
+  # The ERTS programs the host's BEAM starts; `trim_erts!/1` keeps only these.
+  @erts_programs ["erl_child_setup", "inet_gethost"]
 
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
@@ -106,6 +112,26 @@ defmodule Baguette.Release do
   def host_asset(version, otp, target),
     do: "baguette_host-v#{version}-OTP-#{otp}-#{target}.tar.gz"
 
+  @doc """
+  Trims the ERTS of the release at `root` to what the host needs. The host
+  links the BEAM, so of ERTS it starts only `erl_child_setup` (at boot) and
+  `inet_gethost` (for DNS). `beam.smp`, `erlexec`, the other programs and
+  the `include`, `lib`, `doc` and `man` directories go, which also means
+  the release's own `bin/<name>` can no longer start it.
+  """
+  @spec trim_erts!(Path.t()) :: :ok
+  def trim_erts!(root) do
+    for erts <- Path.wildcard(Path.join(root, "erts-*")) do
+      bin = Path.join(erts, "bin")
+
+      for file <- File.ls!(bin), file not in @erts_programs, do: File.rm_rf!(Path.join(bin, file))
+
+      for dir <- File.ls!(erts), dir != "bin", do: File.rm_rf!(Path.join(erts, dir))
+    end
+
+    :ok
+  end
+
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
@@ -119,6 +145,8 @@ defmodule Baguette.Release do
       Path.join([release.version_path, "baguette.json"]),
       :json.encode(%{window: window})
     )
+
+    trim_erts!(release.path)
 
     target = Path.join([release.path, "bin", "#{release.name}_app"])
     # Replace rather than overwrite, so a running copy doesn't block the build.
