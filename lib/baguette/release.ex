@@ -39,6 +39,9 @@ defmodule Baguette.Release do
 
   alias Baguette.Release.{AndroidNifs, Scan}
 
+  # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
+  @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
+
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
     "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
@@ -56,55 +59,103 @@ defmodule Baguette.Release do
 
   @doc """
   The Cargo arguments that choose the host's features: one
-  `components-<set>` per component set, one `api-<name>` per API `plan`
-  keeps (`Baguette.Release.Scan`), then `host_features/1`. Without a plan
-  it scans the current project.
+  `components-<set>` per component set, then `host_features/1`.
   """
-  @spec cargo_features(keyword() | map(), Scan.plan() | nil) :: [String.t()]
-  def cargo_features(options, plan \\ nil) do
-    plan = plan || Scan.plan(options, File.cwd!())
+  @spec cargo_features(keyword() | map()) :: [String.t()]
+  def cargo_features(options) do
     sets = get_in(options, [:baguette, :components])
+    features = Enum.map(sets || [], &"components-#{&1}") ++ host_features(options)
 
-    if sets == nil and plan.excluded == [] do
-      Enum.flat_map(host_features(options), &["--features", &1])
-    else
-      apis = for api <- Scan.apis(), api not in plan.excluded, do: api_feature(api)
-
-      features =
-        Enum.map(sets || ["gpui-kit"], &"components-#{&1}") ++ apis ++ host_features(options)
-
-      ["--no-default-features" | Enum.flat_map(features, &["--features", &1])]
-    end
-  end
-
-  defp api_feature(api), do: "api-" <> String.replace(Atom.to_string(api), "_", "-")
-
-  @doc """
-  Writes the icon names `plan` keeps, one per line, into `dir` for the
-  host's build (`BAGUETTE_ICONS_FILE`), and returns the file; `nil` when
-  the plan keeps every icon.
-  """
-  @spec icons_file(Scan.plan(), Path.t()) :: Path.t() | nil
-  def icons_file(%{icons: :all}, _dir), do: nil
-
-  def icons_file(%{icons: {:only, icons}}, dir) do
-    path = Path.join(dir, "icons.txt")
-    File.write!(path, icons |> Enum.sort() |> Enum.map_join(&(&1 <> "\n")))
-    path
-  end
-
-  # What the host's build reads besides its features.
-  defp build_env(release, plan) do
-    [{"BAGUETTE_ICONS_FILE", icons_file(plan, release.version_path) || ""}]
+    if(sets, do: ["--no-default-features"], else: []) ++
+      Enum.flat_map(features, &["--features", &1])
   end
 
   # The same choice through the Tauri CLI, which passes what follows `--`
   # on to Cargo.
-  defp tauri_features(options, plan) do
-    case cargo_features(options, plan) do
+  defp tauri_features(options) do
+    case cargo_features(options) do
       ["--no-default-features" | features] -> features ++ ["--", "--no-default-features"]
       features -> features
     end
+  end
+
+  @doc """
+  Where the release's host comes from:
+
+    * `{:local, path}` - `BAGUETTE_HOST_BINARY`, a host built elsewhere.
+    * `:build` - built from source with Cargo, for a component set other
+      than the default, any `host_features` (or `BAGUETTE_HOST_FEATURES`),
+      or with `BAGUETTE_BUILD_HOST` set.
+    * `:precompiled` - downloaded from Baguette's GitHub release for this
+      OTP and platform, checked against `priv/host.sha256`. Without a
+      pinned checksum (a checkout of an unreleased version) it is built.
+  """
+  @spec host_source(keyword() | map(), map()) :: :precompiled | :build | {:local, Path.t()}
+  def host_source(options, env \\ System.get_env()) do
+    features =
+      (get_in(options, [:baguette, :host_features]) || []) ++
+        String.split(env["BAGUETTE_HOST_FEATURES"] || "", ",", trim: true)
+
+    cond do
+      path = env["BAGUETTE_HOST_BINARY"] -> {:local, path}
+      env["BAGUETTE_BUILD_HOST"] in ["1", "true"] -> :build
+      features != [] -> :build
+      get_in(options, [:baguette, :components]) not in [nil, ["gpui-kit"]] -> :build
+      true -> :precompiled
+    end
+  end
+
+  @doc "The precompiled host's asset in Baguette's GitHub release."
+  @spec host_asset(String.t(), String.t(), String.t()) :: String.t()
+  def host_asset(version, otp, target),
+    do: "baguette_host-v#{version}-OTP-#{otp}-#{target}.tar.gz"
+
+  defp icons_asset(version), do: "baguette_icons-v#{version}.tar.gz"
+
+  @doc """
+  What the host reads from `releases/<vsn>/baguette.json`: the main
+  window, and the APIs `plan` keeps (`Baguette.Release.Scan`), which it
+  registers at startup.
+  """
+  @spec host_config(keyword() | map(), Scan.plan()) :: map()
+  def host_config(options, plan) do
+    %{
+      window: Map.new(get_in(options, [:baguette, :window]) || []),
+      apis: for(api <- Scan.apis(), api not in plan.excluded, do: Atom.to_string(api))
+    }
+  end
+
+  @doc """
+  Copies the icons of `catalog` (a directory of `<name>.svg`) that `plan`
+  keeps into `into`, and returns how many.
+  """
+  @spec install_icons(Scan.plan(), Path.t(), Path.t()) :: non_neg_integer()
+  def install_icons(plan, catalog, into) do
+    File.rm_rf!(into)
+    File.mkdir_p!(into)
+
+    kept =
+      for file <- File.ls!(catalog),
+          String.ends_with?(file, ".svg"),
+          keeps_icon?(plan, Path.rootname(file)) do
+        File.cp!(Path.join(catalog, file), Path.join(into, file))
+      end
+
+    length(kept)
+  end
+
+  defp keeps_icon?(%{icons: :all}, _name), do: true
+  defp keeps_icon?(%{icons: {:only, icons}}, name), do: name in icons
+
+  # baguette.json and the icons, which the host reads at startup.
+  defp write_host_files!(release, plan, catalog) do
+    File.write!(
+      Path.join(release.version_path, "baguette.json"),
+      :json.encode(host_config(release.options, plan))
+    )
+
+    count = install_icons(plan, catalog, Path.join(release.version_path, "icons"))
+    Mix.shell().info([:green, "* icons ", :reset, "#{count} kept (Baguette.Release.Scan)"])
   end
 
   @spec package(Mix.Release.t()) :: Mix.Release.t()
@@ -113,10 +164,54 @@ defmodule Baguette.Release do
   end
 
   defp package_desktop(release) do
+    {host, catalog} = desktop_host!(release)
+    write_host_files!(release, Scan.plan(release.options, File.cwd!()), catalog)
+
+    target = Path.join([release.path, "bin", "#{release.name}_app"])
+    # Replace rather than overwrite, so a running copy doesn't block the build.
+    File.rm(target)
+    File.cp!(host, target)
+    File.chmod!(target, 0o755)
+    Mix.shell().info([:green, "* installed ", :reset, Path.relative_to_cwd(target)])
+    release
+  end
+
+  # The host executable for this release and gpui-kit's icon catalog, from
+  # wherever `host_source/1` says.
+  defp desktop_host!(release) do
+    source =
+      case host_source(release.options) do
+        :precompiled ->
+          if Map.has_key?(
+               host_sha256(),
+               host_asset(baguette_version(), otp_version(), desktop_target())
+             ),
+             do: :precompiled,
+             else: :build
+
+        other ->
+          other
+      end
+
+    case source do
+      :precompiled ->
+        Mix.shell().info([:green, "* downloading ", :reset, "the precompiled host"])
+        host = download_asset!(host_asset(baguette_version(), otp_version(), desktop_target()))
+        catalog = download_asset!(icons_asset(baguette_version()))
+        {Path.join(host, "baguette_host"), Path.join(catalog, "icons")}
+
+      {:local, path} ->
+        {path, catalog_from_source!()}
+
+      :build ->
+        {build_host!(release), catalog_from_source!()}
+    end
+  end
+
+  defp build_host!(release) do
     liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
-    plan = Scan.plan(release.options, File.cwd!())
-    features = cargo_features(release.options, plan)
+    features = cargo_features(release.options)
     target_dir = target_dir(native, features)
 
     Mix.shell().info([:green, "* building ", :reset, "baguette_host"])
@@ -126,24 +221,64 @@ defmodule Baguette.Release do
         "cargo",
         ["build", "--release", "-p", "baguette_host", "--target-dir", target_dir] ++ features,
         cd: native,
-        env: [{"BAGUETTE_LIBERLANG", liberlang} | build_env(release, plan)],
+        env: [{"BAGUETTE_LIBERLANG", liberlang}],
         into: IO.stream()
       )
 
-    window = Map.new(get_in(release.options, [:baguette, :window]) || [])
+    Path.join([target_dir, "release", "baguette_host"])
+  end
 
-    File.write!(
-      Path.join([release.version_path, "baguette.json"]),
-      :json.encode(%{window: window})
-    )
+  # gpui-kit-assets' icons, from the Cargo checkout of the host's sources.
+  defp catalog_from_source! do
+    native = Path.join(baguette_root(), "native")
+    {json, 0} = System.cmd("cargo", ~w(metadata --format-version 1), cd: native)
 
-    target = Path.join([release.path, "bin", "#{release.name}_app"])
-    # Replace rather than overwrite, so a running copy doesn't block the build.
-    File.rm(target)
-    File.cp!(Path.join([target_dir, "release", "baguette_host"]), target)
-    File.chmod!(target, 0o755)
-    Mix.shell().info([:green, "* installed ", :reset, Path.relative_to_cwd(target)])
-    release
+    case for %{"name" => "gpui-kit-assets", "manifest_path" => manifest} <-
+               JSON.decode!(json)["packages"],
+             do: Path.join(Path.dirname(manifest), "assets/icons") do
+      [dir | _] -> dir
+      [] -> Mix.raise("gpui-kit-assets is not among the host's dependencies")
+    end
+  end
+
+  # Checksums of the precompiled hosts and icon catalogs, from the host
+  # workflow's summary.
+  defp host_sha256, do: sha256_file("priv/host.sha256")
+
+  # Downloads, checks and unpacks a Baguette release asset into the user
+  # cache, once, and returns the directory.
+  defp download_asset!(asset) do
+    sha256 = Map.get(host_sha256(), asset) || Mix.raise("no pinned checksum for #{asset}")
+
+    dir =
+      Path.join([
+        :filename.basedir(:user_cache, "baguette"),
+        "assets",
+        Path.rootname(asset, ".tar.gz")
+      ])
+
+    unless File.dir?(dir) do
+      url = "#{@liberlang_releases}/v#{baguette_version()}/#{asset}"
+      body = http_get!(url)
+
+      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256,
+        do: Mix.raise("#{asset} does not match its pinned SHA-256")
+
+      partial = dir <> ".partial"
+      File.rm_rf!(partial)
+      File.mkdir_p!(partial)
+      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
+      File.rename!(partial, dir)
+    end
+
+    dir
+  end
+
+  defp baguette_version do
+    case Application.spec(:baguette, :vsn) do
+      nil -> Baguette.version()
+      vsn -> List.to_string(vsn)
+    end
   end
 
   @doc """
@@ -157,7 +292,8 @@ defmodule Baguette.Release do
   The step does nothing unless the release lists `bundles:` or
   `BAGUETTE_BUNDLES` is set (`BAGUETTE_BUNDLES=deb,appimage mix release`),
   which wins. Bundles land in `_build/<env>/bundle/<format>/`. It runs the
-  Tauri CLI through `npx`, so Node must be installed.
+  Tauri CLI's `bundle` through `npx` on the host `package/1` installed, so
+  Node must be installed but nothing is compiled again.
   """
   @spec bundle(Mix.Release.t()) :: Mix.Release.t()
   def bundle(%Mix.Release{} = release) do
@@ -175,8 +311,6 @@ defmodule Baguette.Release do
 
   defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
-    plan = Scan.plan(release.options, File.cwd!())
-    target_dir = target_dir(native, cargo_features(release.options, plan))
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
 
@@ -197,18 +331,22 @@ defmodule Baguette.Release do
     File.write!(config_path, :json.encode(config))
     Mix.shell().info([:green, "* bundling ", :reset, Enum.join(bundles, ", ")])
 
+    # The host `package/1` installed, however it came, is bundled as it is:
+    # it goes where the bundler looks, and nothing is compiled again.
+    target_dir = Path.join(Mix.Project.build_path(), "baguette_host")
+    File.mkdir_p!(Path.join(target_dir, "release"))
+    host = Path.join([release.path, "bin", "#{name}_app"])
+
+    for file <- ["baguette_host", "#{name}_app"],
+        do: File.cp!(host, Path.join([target_dir, "release", file]))
+
     {_, 0} =
       System.cmd(
         "npx",
-        ["--yes", "@tauri-apps/cli@2", "build", "--config", config_path, "--bundles"] ++
-          bundles ++ tauri_features(release.options, plan),
+        ["--yes", "@tauri-apps/cli@2", "bundle", "--config", config_path, "--bundles"] ++
+          bundles,
         cd: Path.join(native, "baguette_host"),
-        env: [
-          {"BAGUETTE_LIBERLANG", desktop_liberlang!()},
-          {"CARGO_TARGET_DIR", target_dir},
-          {"BAGUETTE_ICONS_FILE", icons_file(plan, release.version_path) || ""},
-          {"NO_STRIP", "true"}
-        ],
+        env: [{"CARGO_TARGET_DIR", target_dir}, {"NO_STRIP", "true"}],
         into: IO.stream()
       )
 
@@ -276,6 +414,9 @@ defmodule Baguette.Release do
 
     liberlang = android_liberlang!(Enum.map(abis, & &1.triple))
 
+    # The phone's host is built here, so its icons come from the sources.
+    write_host_files!(release, Scan.plan(release.options, File.cwd!()), catalog_from_source!())
+
     # The release without the build machine's ERTS: the BEAM is liberlang.so.
     archive = Path.join(out, "release.tar.gz")
 
@@ -293,10 +434,7 @@ defmodule Baguette.Release do
       })
     )
 
-    plan = Scan.plan(release.options, File.cwd!())
-
     env = [
-      {"BAGUETTE_ICONS_FILE", icons_file(plan, out) || ""},
       {"BAGUETTE_LIBERLANG", liberlang},
       {"BAGUETTE_RELEASE_ARCHIVE", archive},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "android"])}
@@ -361,7 +499,7 @@ defmodule Baguette.Release do
       ["run", "tauri", "--", "android", "build", "--ci", "--config", config] ++
         if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
         Enum.flat_map(abis, &["--target", &1.tauri]) ++
-        tauri_features(release.options, plan),
+        tauri_features(release.options),
       env
     )
 
@@ -461,8 +599,6 @@ defmodule Baguette.Release do
     end
   end
 
-  @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
-
   defp desktop_liberlang! do
     case System.get_env("BAGUETTE_LIBERLANG") do
       dir when dir not in [nil, ""] ->
@@ -527,9 +663,10 @@ defmodule Baguette.Release do
   end
 
   # `sha256sum` output for every published asset, from the liberlang workflow.
-  defp liberlang_sha256 do
-    for line <-
-          File.read!(Path.join(baguette_root(), "priv/liberlang.sha256")) |> String.split("\n"),
+  defp liberlang_sha256, do: sha256_file("priv/liberlang.sha256")
+
+  defp sha256_file(path) do
+    for line <- File.read!(Path.join(baguette_root(), path)) |> String.split("\n"),
         not String.starts_with?(line, "#"),
         [sha, file] <- [String.split(line, ~r/\s+\*?/, parts: 2, trim: true)],
         into: %{},

@@ -1,9 +1,5 @@
-use std::collections::BTreeSet;
 use std::env;
 use std::path::PathBuf;
-
-#[path = "src/icon_select.rs"]
-mod icon_select;
 
 fn main() {
     tauri_build::build();
@@ -18,7 +14,6 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(baguette_embedded_release)");
     embed_release();
     record_versions();
-    select_icons();
     let Some(dir) = env::var_os("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
@@ -106,36 +101,4 @@ fn locked_version<'a>(lock: &'a str, crate_name: &str) -> Option<&'a str> {
         .next()?
         .strip_prefix("version = \"")?
         .strip_suffix('"')
-}
-
-/// The icons to embed (`src/icon_select.rs`): those in the file
-/// `BAGUETTE_ICONS_FILE` names (the release's source scan, one word per
-/// line, from `Baguette.Release`), or the whole catalog without it.
-fn select_icons() {
-    println!("cargo::rerun-if-env-changed=BAGUETTE_ICONS_FILE");
-    let file = env::var("BAGUETTE_ICONS_FILE")
-        .ok()
-        .filter(|f| !f.is_empty());
-    let selected = file.map(|file| {
-        println!("cargo::rerun-if-changed={file}");
-        let words: BTreeSet<String> = std::fs::read_to_string(&file)
-            .unwrap_or_else(|e| panic!("BAGUETTE_ICONS_FILE {file}: {e}"))
-            .lines()
-            .map(str::to_owned)
-            .collect();
-        // gpui-kit-assets' build script tells its dependents where the catalog is.
-        let dir =
-            env::var("DEP_GPUI_KIT_DEFAULT_ICONS_ICONS_DIR").expect("gpui-kit-assets icons dir");
-        let catalog: BTreeSet<String> = std::fs::read_dir(&dir)
-            .unwrap_or_else(|e| panic!("{dir}: {e}"))
-            .filter_map(|entry| {
-                let path = entry.ok()?.path();
-                (path.extension()? == "svg")
-                    .then(|| path.file_stem()?.to_str().map(str::to_owned))?
-            })
-            .collect();
-        icon_select::select(&catalog, &words)
-    });
-    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("icons.rs");
-    std::fs::write(out, icon_select::source(selected.as_deref())).unwrap();
 }

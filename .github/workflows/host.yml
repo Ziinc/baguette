@@ -1,0 +1,104 @@
+name: Host
+
+# Builds the precompiled native host that `mix release` downloads
+# (Baguette.Release.host_source/2): the default host (gpui-kit's component
+# set, no host features) for each platform and OTP version, linking that
+# OTP's liberlang, and gpui-kit's icon catalog, which releases copy the
+# icons they use from. The release workflow attaches them to the version's
+# GitHub release; pin the checksums this prints in priv/host.sha256.
+
+on:
+  workflow_call:
+  workflow_dispatch:
+
+env:
+  OTP_TAG: OTP-29.1.2
+
+jobs:
+  host:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-linux
+            os: ubuntu-24.04
+          - target: aarch64-linux
+            os: ubuntu-24.04-arm
+          - target: aarch64-macos
+            os: macos-15
+          - target: x86_64-macos
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: System dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev libwayland-dev \
+            libx11-xcb-dev libfontconfig-dev libfreetype-dev libgbm-dev libegl-dev \
+            libxrandr-dev clang libncurses-dev
+      - uses: actions/cache@v4
+        id: liberlang
+        with:
+          path: |
+            ~/liberlang/liberlang.a
+            ~/liberlang/otp
+          key: liberlang-${{ matrix.target }}-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang.sh') }}
+      - name: Build liberlang
+        if: steps.liberlang.outputs.cache-hit != 'true'
+        run: |
+          if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3; fi
+          scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
+      - name: Build the host
+        working-directory: native
+        run: BAGUETTE_LIBERLANG=$HOME/liberlang cargo build --release -p baguette_host
+      - name: Package
+        run: |
+          version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
+          asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz"
+          mkdir -p out
+          tar -czf "out/$asset" -C native/target/release baguette_host
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-${{ matrix.target }}
+          path: out/*.tar.gz
+
+  icons:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Package gpui-kit's icon catalog
+        run: |
+          version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
+          manifest=$(cd native && cargo metadata --format-version 1 |
+            jq -r '.packages[] | select(.name == "gpui-kit-assets") | .manifest_path')
+          mkdir -p out
+          tar -czf "out/baguette_icons-v$version.tar.gz" -C "$(dirname "$manifest")/assets" icons
+      - uses: actions/upload-artifact@v4
+        with:
+          name: host-icons
+          path: out/*.tar.gz
+
+  checksums:
+    needs: [host, icons]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: host-*
+          merge-multiple: true
+          path: out
+      - name: Checksums for priv/host.sha256
+        run: |
+          {
+            echo '```'
+            (cd out && sha256sum *.tar.gz)
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -16,6 +16,7 @@ pub struct Release {
     pub name: String,
     pub version: String,
     pub window: WindowConfig,
+    pub apis: Apis,
     /// Where `erl_child_setup` is, which the BEAM starts at boot.
     pub bindir: PathBuf,
 }
@@ -30,6 +31,24 @@ pub struct WindowConfig {
     pub height: f64,
 }
 
+/// The host APIs the release keeps (`Baguette.Release.Scan`), from
+/// `baguette.json`'s `apis`. Without the key, it keeps them all.
+#[derive(Debug, PartialEq)]
+pub struct Apis {
+    pub pick: bool,
+    pub open_url: bool,
+}
+
+impl Apis {
+    fn from_names(names: Option<&[String]>) -> Self {
+        let kept = |api: &str| names.is_none_or(|names| names.iter().any(|n| n == api));
+        Self {
+            pick: kept("pick"),
+            open_url: kept("open_url"),
+        }
+    }
+}
+
 impl Default for WindowConfig {
     fn default() -> Self {
         Self {
@@ -40,18 +59,46 @@ impl Default for WindowConfig {
     }
 }
 
+/// Where the release may be, for the executable at `exe`: the release it
+/// sits in (`<root>/bin/<name>_app`), or the resources of a bundle around
+/// it. A precompiled host doesn't know its app's name, so Tauri's own
+/// resource directory points elsewhere; the bundler's layout is found from
+/// the executable's name instead: `/usr/bin/<name>_app` with
+/// `/usr/lib/<name>/release` (deb, AppImage), and
+/// `Contents/MacOS/<name>_app` with `Contents/Resources/release` (macOS).
+pub(crate) fn release_candidates(exe: &std::path::Path) -> Vec<PathBuf> {
+    let Some(bin) = exe.parent() else {
+        return Vec::new();
+    };
+    let mut candidates: Vec<PathBuf> = bin.parent().into_iter().map(PathBuf::from).collect();
+    if let (Some(prefix), Some(name)) = (bin.parent(), exe.file_name().and_then(|n| n.to_str())) {
+        let app = name.strip_suffix("_app").unwrap_or(name);
+        candidates.push(prefix.join("lib").join(app).join("release"));
+        candidates.push(prefix.join("Resources").join("release"));
+    }
+    candidates
+}
+
+/// `releases/<vsn>/baguette.json`.
+#[derive(serde::Deserialize, Default)]
+#[serde(default)]
+struct Config {
+    window: WindowConfig,
+    apis: Option<Vec<String>>,
+}
+
 impl Release {
     /// The release at `$BAGUETTE_RELEASE_ROOT`, the one this executable sits
     /// in (`<root>/bin/<name>_app`, as `mix release` lays it out), or the one
     /// a Tauri bundle carries in its resources (`<resources>/release`).
     #[cfg(not(target_os = "android"))]
     pub fn locate(resources: Option<PathBuf>) -> Result<Self, String> {
-        let beside_exe = std::env::current_exe()
-            .ok()
-            .and_then(|exe| Some(exe.parent()?.parent()?.to_path_buf()));
+        let around_exe = std::env::current_exe()
+            .map(|exe| release_candidates(&exe))
+            .unwrap_or_default();
         let root = match std::env::var_os("BAGUETTE_RELEASE_ROOT") {
             Some(root) => PathBuf::from(root),
-            None => beside_exe
+            None => around_exe
                 .into_iter()
                 .chain(resources.map(|dir| dir.join("release")))
                 .find(|root| root.join("releases/start_erl.data").is_file())
@@ -80,17 +127,11 @@ impl Release {
             })
             .next()
             .ok_or("no .rel file in the release")?;
-        let window = std::fs::read(root.join("releases").join(version).join("baguette.json"))
+        let config = std::fs::read(root.join("releases").join(version).join("baguette.json"))
             .ok()
-            .and_then(|json| {
-                #[derive(serde::Deserialize)]
-                struct Config {
-                    window: WindowConfig,
-                }
-                serde_json::from_slice::<Config>(&json).ok()
-            })
-            .map(|config| config.window)
+            .and_then(|json| serde_json::from_slice::<Config>(&json).ok())
             .unwrap_or_default();
+        let (window, apis) = (config.window, Apis::from_names(config.apis.as_deref()));
         // On Android the release's own ERTS binaries are the build machine's;
         // `android::unpack` puts the phone's `erl_child_setup` in `bin`.
         let bindir = if cfg!(target_os = "android") {
@@ -101,6 +142,7 @@ impl Release {
         Ok(Self {
             root,
             window,
+            apis,
             bindir,
             name,
             version: version.to_owned(),
@@ -401,6 +443,47 @@ pub mod android {
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn finds_the_release_beside_or_around_the_executable() {
+        let at = |exe: &str| release_candidates(std::path::Path::new(exe));
+        assert_eq!(
+            at("/x/rel/firehose/bin/firehose_app"),
+            [
+                PathBuf::from("/x/rel/firehose"),
+                PathBuf::from("/x/rel/firehose/lib/firehose/release"),
+                PathBuf::from("/x/rel/firehose/Resources/release"),
+            ]
+        );
+        assert!(at("/usr/bin/firehose_app").contains(&PathBuf::from("/usr/lib/firehose/release")));
+        assert!(
+            at("/A/Firehose.app/Contents/MacOS/firehose_app")
+                .contains(&PathBuf::from("/A/Firehose.app/Contents/Resources/release"))
+        );
+    }
+
+    #[test]
+    fn keeps_the_apis_the_release_names() {
+        let config: Config =
+            serde_json::from_str(r#"{"window": {"width": 640}, "apis": ["pick"]}"#).unwrap();
+        assert_eq!(config.window.width, 640.);
+        assert_eq!(
+            Apis::from_names(config.apis.as_deref()),
+            Apis {
+                pick: true,
+                open_url: false
+            }
+        );
+        // Releases that don't say keep everything.
+        assert_eq!(
+            Apis::from_names(None),
+            Apis {
+                pick: true,
+                open_url: true
+            }
+        );
+    }
+
     use super::*;
 
     #[test]

@@ -1,0 +1,3 @@
+# sha256sum of each precompiled host and icon catalog for this version's
+# GitHub release: baguette_host-v<version>-OTP-<otp>-<target>.tar.gz and
+# baguette_icons-v<version>.tar.gz, from the host workflow's summary.

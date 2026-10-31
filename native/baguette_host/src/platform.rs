@@ -85,15 +85,13 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
             Ok(Value::Null)
         }
         "app.appearance" => Ok(json!(appearance(cx.window_appearance()))),
-        #[cfg(feature = "api-open-url")]
-        "app.open_url" => {
+        "app.open_url" if OPEN_URL.get().is_some() => {
             use tauri_plugin_opener::OpenerExt;
             app.opener()
                 .open_url(text("url")?, None::<&str>)
                 .map_err(|e| e.to_string())?;
             Ok(Value::Null)
         }
-        #[cfg(not(feature = "api-open-url"))]
         "app.open_url" => Err("needs the :open_url API, which this release excludes".into()),
         "menu.set" => {
             let menus: Vec<MenuSpec> =
@@ -145,6 +143,13 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
         },
         other => Err(format!("no platform call `{other}`")),
     }
+}
+
+static OPEN_URL: std::sync::OnceLock<()> = std::sync::OnceLock::new();
+
+/// The release keeps `:open_url`: its plugin is registered.
+pub fn keep_open_url() {
+    let _ = OPEN_URL.set(());
 }
 
 pub fn appearance(appearance: WindowAppearance) -> &'static str {

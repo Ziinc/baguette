@@ -11,9 +11,15 @@ use crate::bridge;
 
 static APP: OnceLock<tauri::AppHandle> = OnceLock::new();
 
-/// Keeps the app handle the dialogs open from. Call once, in setup.
+/// Keeps the app handle the dialogs open from. Call once, in setup, when
+/// the release keeps `:pick`.
 pub fn install(app: tauri::AppHandle) {
     let _ = APP.set(app);
+}
+
+/// Whether the release keeps `:pick`, so dialogs can open.
+pub fn installed() -> bool {
+    APP.get().is_some()
 }
 
 /// A picker element's binding: what to send, and how to filter.

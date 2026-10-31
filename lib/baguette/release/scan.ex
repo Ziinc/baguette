@@ -1,18 +1,23 @@
 defmodule Baguette.Release.Scan do
   @moduledoc """
-  What a release leaves out of its native host, to make it smaller and
-  quicker to build.
+  What a release leaves out of its native host.
 
   As Tailwind keeps only the classes it finds in your source, a release
-  keeps only the host APIs and icons its source uses. It scans
+  keeps only the host APIs and icons its source uses. One precompiled host
+  serves every app (`Baguette.Release.host_source/2`), so this happens when
+  the release is packaged, not compiled. It scans
   `lib/**/*.{ex,exs,heex,eex}` by default:
 
-    * `:pick` (native file dialogs, `tauri-plugin-dialog`) is kept when the
-      source has `phx-pick-file` or `phx-pick-save`.
-    * `:open_url` (`tauri-plugin-opener`) is kept when it has `open_url`.
+    * `:pick` (native file dialogs) is kept when the source has
+      `phx-pick-file` or `phx-pick-save`.
+    * `:open_url` is kept when it has `open_url`.
     * Icons: every kebab-case word in the source that names an icon in
-      gpui-kit's catalog is embedded, as well as gpui-kit's own component
-      icons. The rest of the 1,800-icon catalog is left out.
+      gpui-kit's catalog is copied into the release
+      (`releases/<vsn>/icons`). The rest of the 1,830-icon catalog stays
+      out; gpui-kit's own component icons are built in.
+
+  The host registers only the kept APIs' plugins, from the `apis` in
+  `releases/<vsn>/baguette.json`.
 
   Release options (`releases: [my_app: [baguette: [...]]]`):
 
