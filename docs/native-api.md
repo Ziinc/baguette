@@ -173,6 +173,27 @@ tests both read it, so the two sides can't drift apart.
   is committed and builds use stable Rust. Run the task again after a
   GPUI bump.
 
+## Leaving APIs out
+
+A release leaves out of its host what its source doesn't use, as Tailwind
+does with classes (`Baguette.Release.Scan`):
+
+- `:pick` (`phx-pick-*`, tauri-plugin-dialog) and `:open_url`
+  (tauri-plugin-opener) are the `api-pick` and `api-open-url` Cargo
+  features, on by default. A release turns off each one its source never
+  mentions, so neither crate is compiled.
+- Icons: the scan's kebab-case words go to `build.rs`
+  (`BAGUETTE_ICONS_FILE`). It keeps those that name an icon in gpui-kit's
+  catalog and serves them with gpui-kit-assets' `icon_assets!`, along with
+  gpui-kit's own component icons, in place of the whole 1,830-icon
+  `AllAssets`.
+- Release options: `exclude: [:pick, :open_url]`, `scan: false` or
+  `scan: [paths: [...]]`, and `safelist: [apis: [...], icons: [...]]` for
+  names the source only builds at run time.
+- Anything left out draws nothing and is logged once. Under `mix test`,
+  `Baguette.Test` raises when a view renders a left-out icon or picker, and
+  `Baguette.App.open_url/1` raises when `:open_url` is out.
+
 ## Next, in order
 
 Each step is test first: Rust unit tests, Baguette.Test, then one

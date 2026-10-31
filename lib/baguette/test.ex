@@ -28,14 +28,20 @@ defmodule Baguette.Test do
 
   @doc """
   The root node last rendered to `window`. Each `<list>` holds the rows the
-  host has of it, in order, as its children.
+  host has of it, in order, as its children. Raises when the tree uses an
+  icon or API the project's releases leave out (`Baguette.Release.Scan`).
   """
   @spec tree(Host.window()) :: Baguette.Tree.tree() | nil
   def tree(window) do
     sync(window)
 
-    with %{"root" => root} <- Host.last_frame(window),
-         do: with_rows(root, Host.rows_of(window))
+    with %{"root" => root} <- Host.last_frame(window) do
+      tree = with_rows(root, Host.rows_of(window))
+      # What the project's releases leave out of the host fails here, not
+      # silently in the app.
+      if plan = Baguette.Release.Scan.current(), do: Baguette.Release.Scan.check!(tree, plan)
+      tree
+    end
   end
 
   defp with_rows(%{"t" => "list", "a" => %{"id" => id}} = list, rows) do

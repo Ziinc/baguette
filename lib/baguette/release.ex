@@ -21,6 +21,10 @@ defmodule Baguette.Release do
   the host (see `Baguette.Components`). Without it the host has its default
   sets, which is gpui-kit's; `components: []` leaves them all out.
 
+  The host leaves out the APIs and icons the app's source doesn't use, as
+  Tailwind does with classes: see `Baguette.Release.Scan` for `exclude:`,
+  `scan:` and `safelist:`.
+
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
   The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
@@ -33,7 +37,7 @@ defmodule Baguette.Release do
   `android/1` builds an APK instead.
   """
 
-  alias Baguette.Release.AndroidNifs
+  alias Baguette.Release.{AndroidNifs, Scan}
 
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
@@ -52,21 +56,52 @@ defmodule Baguette.Release do
 
   @doc """
   The Cargo arguments that choose the host's features: one
-  `components-<set>` per component set, then `host_features/1`.
+  `components-<set>` per component set, one `api-<name>` per API `plan`
+  keeps (`Baguette.Release.Scan`), then `host_features/1`. Without a plan
+  it scans the current project.
   """
-  @spec cargo_features(keyword() | map()) :: [String.t()]
-  def cargo_features(options) do
+  @spec cargo_features(keyword() | map(), Scan.plan() | nil) :: [String.t()]
+  def cargo_features(options, plan \\ nil) do
+    plan = plan || Scan.plan(options, File.cwd!())
     sets = get_in(options, [:baguette, :components])
-    features = Enum.map(sets || [], &"components-#{&1}") ++ host_features(options)
 
-    if(sets, do: ["--no-default-features"], else: []) ++
-      Enum.flat_map(features, &["--features", &1])
+    if sets == nil and plan.excluded == [] do
+      Enum.flat_map(host_features(options), &["--features", &1])
+    else
+      apis = for api <- Scan.apis(), api not in plan.excluded, do: api_feature(api)
+
+      features =
+        Enum.map(sets || ["gpui-kit"], &"components-#{&1}") ++ apis ++ host_features(options)
+
+      ["--no-default-features" | Enum.flat_map(features, &["--features", &1])]
+    end
+  end
+
+  defp api_feature(api), do: "api-" <> String.replace(Atom.to_string(api), "_", "-")
+
+  @doc """
+  Writes the icon names `plan` keeps, one per line, into `dir` for the
+  host's build (`BAGUETTE_ICONS_FILE`), and returns the file; `nil` when
+  the plan keeps every icon.
+  """
+  @spec icons_file(Scan.plan(), Path.t()) :: Path.t() | nil
+  def icons_file(%{icons: :all}, _dir), do: nil
+
+  def icons_file(%{icons: {:only, icons}}, dir) do
+    path = Path.join(dir, "icons.txt")
+    File.write!(path, icons |> Enum.sort() |> Enum.map_join(&(&1 <> "\n")))
+    path
+  end
+
+  # What the host's build reads besides its features.
+  defp build_env(release, plan) do
+    [{"BAGUETTE_ICONS_FILE", icons_file(plan, release.version_path) || ""}]
   end
 
   # The same choice through the Tauri CLI, which passes what follows `--`
   # on to Cargo.
-  defp tauri_features(options) do
-    case cargo_features(options) do
+  defp tauri_features(options, plan) do
+    case cargo_features(options, plan) do
       ["--no-default-features" | features] -> features ++ ["--", "--no-default-features"]
       features -> features
     end
@@ -80,7 +115,8 @@ defmodule Baguette.Release do
   defp package_desktop(release) do
     liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
-    features = cargo_features(release.options)
+    plan = Scan.plan(release.options, File.cwd!())
+    features = cargo_features(release.options, plan)
     target_dir = target_dir(native, features)
 
     Mix.shell().info([:green, "* building ", :reset, "baguette_host"])
@@ -90,7 +126,7 @@ defmodule Baguette.Release do
         "cargo",
         ["build", "--release", "-p", "baguette_host", "--target-dir", target_dir] ++ features,
         cd: native,
-        env: [{"BAGUETTE_LIBERLANG", liberlang}],
+        env: [{"BAGUETTE_LIBERLANG", liberlang} | build_env(release, plan)],
         into: IO.stream()
       )
 
@@ -139,7 +175,8 @@ defmodule Baguette.Release do
 
   defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
-    target_dir = target_dir(native, cargo_features(release.options))
+    plan = Scan.plan(release.options, File.cwd!())
+    target_dir = target_dir(native, cargo_features(release.options, plan))
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
 
@@ -164,11 +201,12 @@ defmodule Baguette.Release do
       System.cmd(
         "npx",
         ["--yes", "@tauri-apps/cli@2", "build", "--config", config_path, "--bundles"] ++
-          bundles ++ tauri_features(release.options),
+          bundles ++ tauri_features(release.options, plan),
         cd: Path.join(native, "baguette_host"),
         env: [
           {"BAGUETTE_LIBERLANG", desktop_liberlang!()},
           {"CARGO_TARGET_DIR", target_dir},
+          {"BAGUETTE_ICONS_FILE", icons_file(plan, release.version_path) || ""},
           {"NO_STRIP", "true"}
         ],
         into: IO.stream()
@@ -255,7 +293,10 @@ defmodule Baguette.Release do
       })
     )
 
+    plan = Scan.plan(release.options, File.cwd!())
+
     env = [
+      {"BAGUETTE_ICONS_FILE", icons_file(plan, out) || ""},
       {"BAGUETTE_LIBERLANG", liberlang},
       {"BAGUETTE_RELEASE_ARCHIVE", archive},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "android"])}
@@ -320,7 +361,7 @@ defmodule Baguette.Release do
       ["run", "tauri", "--", "android", "build", "--ci", "--config", config] ++
         if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
         Enum.flat_map(abis, &["--target", &1.tauri]) ++
-        tauri_features(release.options),
+        tauri_features(release.options, plan),
       env
     )
 

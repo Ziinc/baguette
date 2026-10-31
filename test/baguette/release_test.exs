@@ -16,13 +16,33 @@ defmodule Baguette.ReleaseTest do
     assert Release.host_features(%{baguette: [host_features: ["a"]]}) == ["a", "playwright", "b"]
   end
 
-  test "cargo_features/1 turns the components option into set features" do
-    assert Release.cargo_features(%{}) == []
+  @keep_all %{excluded: [], icons: :all}
 
-    assert Release.cargo_features(%{baguette: [components: ["gpui-kit"]]}) ==
-             ["--no-default-features", "--features", "components-gpui-kit"]
+  test "cargo_features/2 turns the components option into set features" do
+    assert Release.cargo_features(%{}, @keep_all) == []
 
-    assert Release.cargo_features(%{baguette: [components: [], host_features: ["x"]]}) ==
-             ["--no-default-features", "--features", "x"]
+    assert Release.cargo_features(%{baguette: [components: ["gpui-kit"]]}, @keep_all) ==
+             ~w(--no-default-features --features components-gpui-kit
+                --features api-open-url --features api-pick)
+
+    assert Release.cargo_features(%{baguette: [components: [], host_features: ["x"]]}, @keep_all) ==
+             ~w(--no-default-features --features api-open-url --features api-pick --features x)
+  end
+
+  test "cargo_features/2 leaves out the APIs the plan excludes" do
+    plan = %{excluded: [:pick], icons: :all}
+
+    assert Release.cargo_features(%{}, plan) ==
+             ~w(--no-default-features --features components-gpui-kit --features api-open-url)
+  end
+
+  test "icons_file/2 lists the icons to keep for the host's build, or none to keep all" do
+    dir = Path.join(System.tmp_dir!(), "baguette-icons-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    assert Release.icons_file(%{excluded: [], icons: :all}, dir) == nil
+    path = Release.icons_file(%{excluded: [], icons: {:only, MapSet.new(~w(trash plus))}}, dir)
+    assert File.read!(path) == "plus\ntrash\n"
   end
 end
