@@ -402,6 +402,64 @@ defmodule Baguette.Test do
 
   defp input_labelled?(_el, _label), do: false
 
+  @manifest Path.expand("../../native/Cargo.toml", __DIR__)
+
+  @doc """
+  A PNG of what `window` last rendered, drawn offscreen by GPUI with the
+  host's own view code, for screenshot tests. Check it with gpui-visual-test's
+  `cargo visual-test check`, or compare it with an approved image.
+
+  Options: `:width` and `:height` in logical pixels (default 800x600). The
+  image is at the headless renderer's scale (2x).
+
+  Runs `$BAGUETTE_RENDER` when set (a `baguette_host` built with the `render`
+  feature), else builds and runs one with cargo. Needs GPUI's headless
+  renderer: macOS, or Linux with Vulkan (lavapipe from `mesa-vulkan-drivers`
+  without a GPU). No display or release is needed.
+  """
+  @spec render_png(Host.window(), keyword) :: binary
+  def render_png(window, opts \\ []) do
+    sync(window)
+    frame = Host.last_frame(window) || raise ArgumentError, "nothing rendered to window #{window}"
+    # The rows the host has of each list, from the first one it holds.
+    lists =
+      Map.new(Host.rows_of(window), fn {id, rows} ->
+        start = rows |> Map.keys() |> Enum.min(fn -> 0 end)
+        held = Stream.iterate(start, &(&1 + 1)) |> Stream.map(&rows[&1]) |> Enum.take_while(& &1)
+        {id, %{"start" => start, "rows" => held}}
+      end)
+
+    dir = Path.join(System.tmp_dir!(), "baguette_render_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+
+    try do
+      json = Path.join(dir, "frame.json")
+      png = Path.join(dir, "frame.png")
+      File.write!(json, JSON.encode!(Map.put(frame, "lists", lists)))
+      width = to_string(opts[:width] || 800)
+      height = to_string(opts[:height] || 600)
+      args = ["--render", json, png, "--width", width, "--height", height]
+
+      {cmd, args} =
+        case System.get_env("BAGUETTE_RENDER") do
+          nil ->
+            {"cargo",
+             ["run", "--quiet", "--manifest-path", @manifest, "-p", "baguette_host"] ++
+               ["--features", "render", "--" | args]}
+
+          bin ->
+            {bin, args}
+        end
+
+      case System.cmd(cmd, args, stderr_to_stdout: true) do
+        {_, 0} -> File.read!(png)
+        {output, status} -> raise "baguette_host --render exited with #{status}:\n#{output}"
+      end
+    after
+      File.rm_rf!(dir)
+    end
+  end
+
   # Waits until the owner of `window` has handled everything sent to it, and
   # the host has stored what it rendered in response.
   defp sync(window) do

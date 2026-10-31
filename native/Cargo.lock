@@ -624,11 +624,15 @@ name = "baguette_host"
 version = "0.1.0"
 dependencies = [
  "android_logger",
+ "anyhow",
  "async-channel",
  "baguette_abi",
  "flate2",
  "gpui-kit",
  "gpui-playwright",
+ "gpui-pre",
+ "gpui-pre-platform",
+ "image",
  "libc",
  "log",
  "rust-embed",
