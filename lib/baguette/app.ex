@@ -6,9 +6,13 @@ defmodule Baguette.App do
   `handle_info({:appearance, :light | :dark}, assigns)`.
   """
 
-  @doc "Opens `url` with the system's handler for it (a browser, a mail client)."
+  @doc """
+  Opens `url` with the system's handler for it (a browser, a mail client).
+  Needs the `:open_url` API in the release (`Baguette.Release.Scan`).
+  """
   @spec open_url(String.t()) :: :ok
   def open_url(url) when is_binary(url) do
+    unless Baguette.Host.native?(), do: Baguette.Release.Scan.ensure!(:open_url)
     Baguette.Host.call("app.open_url", %{url: url})
     :ok
   end

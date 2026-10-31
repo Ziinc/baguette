@@ -56,7 +56,10 @@ jobs:
             libegl-dev libxrandr-dev clang
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo clippy -p baguette_host --all-targets --features playwright -- -D warnings
+      # A release whose source scan leaves out every optional API and icon.
+      - run: cargo clippy -p baguette_host --no-default-features --features components-gpui-kit --all-targets -- -D warnings
+        env:
+          BAGUETTE_ICONS_FILE: ${{ github.workspace }}/native/baguette_host/icons-ci.txt
       - run: cargo test --workspace
 
   e2e-linux:

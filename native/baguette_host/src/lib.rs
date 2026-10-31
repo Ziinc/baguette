@@ -8,10 +8,17 @@
 mod beam;
 mod bridge;
 pub mod components;
+#[cfg(test)]
+mod icon_select;
 mod keymap;
 mod list;
 mod paint;
 mod patch;
+/// The icons this build embeds (`build.rs`, `icon_select.rs`).
+mod icons {
+    include!(concat!(env!("OUT_DIR"), "/icons.rs"));
+}
+#[cfg(feature = "api-pick")]
 mod pick;
 mod platform;
 #[cfg(feature = "playwright")]
@@ -50,11 +57,15 @@ pub fn run() {
     beam::android::log_stdio();
     let (host, inbox) = bridge::install();
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
+    let builder = tauri::Builder::default();
+    #[cfg(feature = "api-pick")]
+    let builder = builder.plugin(tauri_plugin_dialog::init());
+    #[cfg(feature = "api-open-url")]
+    let builder = builder.plugin(tauri_plugin_opener::init());
+    builder
         .on_menu_event(|_, event| platform::on_menu_event(event))
         .setup(move |app| {
+            #[cfg(feature = "api-pick")]
             pick::install(app.handle().clone());
             use tauri::Manager;
             #[cfg(not(target_os = "android"))]
@@ -75,7 +86,7 @@ pub fn run() {
                 tauri_plugin_gpui::GpuiConfig::new()
                     // gpui-kit's icons (a checkbox's tick, an input's clear button).
                     // and every lucide icon, for `<icon name="...">`.
-                    .assets(gpui_kit::assets::AllAssets)
+                    .assets(icons::Icons)
                     .on_launch(move |cx| {
                         // gpui-kit's components: text inputs and checkboxes.
                         gpui_kit::init(cx);
