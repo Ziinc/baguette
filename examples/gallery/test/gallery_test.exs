@@ -37,11 +37,6 @@ defmodule GalleryTest do
     assert Test.text(0) =~ "Appearance: light"
   end
 
-  test "APIs the source doesn't use are left out of the release, and fail in tests" do
-    assert Baguette.Release.Scan.current().excluded == [:open_url, :pick]
-    assert_raise ArgumentError, ~r/:open_url is excluded/, fn -> Baguette.App.open_url("x") end
-  end
-
   defp flatten(%{"c" => children} = el), do: [el | Enum.flat_map(children, &flatten/1)]
 
   defp flatten(_), do: []

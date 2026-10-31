@@ -14,14 +14,10 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [features]
-default = ["components-gpui-kit", "api-pick", "api-open-url"]
+default = ["components-gpui-kit"]
 # Native component sets (`components.rs`), one feature each. A release
 # chooses them with `baguette: [components: [...]]`.
 components-gpui-kit = []
-# Host APIs a release can leave out (`Baguette.Release.Scan`), with the
-# crates they need.
-api-pick = ["dep:tauri-plugin-dialog"]
-api-open-url = ["dep:tauri-plugin-opener"]
 # Serves the app's windows to Playwright clients (gpui-playwright) when
 # GPUI_PLAYWRIGHT is set. Test builds only: release builds leave it out.
 playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/painted-text"]
@@ -30,8 +26,6 @@ playwright = ["dep:gpui-playwright", "gpui-kit/test-support", "gpui-playwright/p
 async-channel = "2"
 # Text inputs and checkboxes, and the Root that observes them for Playwright.
 gpui-kit = { version = "=0.7.3", default-features = false, features = ["component", "assets"] }
-# Only for its build script's catalog path, which `build.rs` selects icons from.
-gpui-kit-assets = "=0.7.3"
 gpui-playwright = { git = "https://github.com/Ziinc/gpui-playwright", rev = "14ec1fe92f2c9ca58607808abdc824d20fa1ca4d", optional = true }
 # gpui-kit's icon catalog. `debug-embed` embeds it in debug builds too:
 # without it they read the icons from the build machine's disk, which a
@@ -40,9 +34,9 @@ rust-embed = { version = "8", features = ["debug-embed"] }
 baguette_abi = { path = "../baguette_abi" }
 serde = { version = "1", features = ["derive"] }
 # Native open and save dialogs for phx-pick-file / phx-pick-save.
-tauri-plugin-dialog = { version = "2", optional = true }
+tauri-plugin-dialog = "2"
 # Baguette.App.open_url/1: tauri-gpui's platform leaves URLs to it.
-tauri-plugin-opener = { version = "2", optional = true }
+tauri-plugin-opener = "2"
 serde_json = "1"
 tauri = { version = "2.12", features = ["unstable"] }
 # tauri-gpui's main is on gpui-pre =0.3.9, the snapshot gpui-kit 0.7.3 uses.

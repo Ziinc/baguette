@@ -95,6 +95,29 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert half == track / 2
   end
 
+  test "animations tween any style, and are keyed by id", %{page: page} do
+    assert :ok = Playwright.await_text(page, "Entry 1")
+    Process.sleep(2_500)
+    shot = Playwright.screenshot(page)
+    # animate-to: the tween from red has ended blue.
+    %{"x" => tx, "y" => ty} = Playwright.bounding_box(page, label: "Tween")
+    assert pixel(shot, tx + 4, ty + 4) == {0, 0, 255}
+    # The flash over Entry 1 has run out, and holds the end.
+    %{"x" => x, "y" => y, "width" => w} = Playwright.bounding_box(page, label: "Entry 1")
+    corner = {x + w - 4, y + 4}
+    assert pixel(shot, elem(corner, 0), elem(corner, 1)) == {255, 255, 255}
+
+    # A new entry takes the top row's place: its own id starts its own flash,
+    # while Entry 1, now one row down, doesn't flash again.
+    Playwright.click(page, "Add entry")
+    assert :ok = Playwright.await_text(page, "Entry 2")
+    shot = Playwright.screenshot(page)
+    {r, g, b} = pixel(shot, elem(corner, 0), elem(corner, 1))
+    assert g > 200 and r < 200 and b < 200, "the new entry isn't flashing: #{inspect({r, g, b})}"
+    %{"x" => x1, "y" => y1, "width" => w1} = Playwright.bounding_box(page, label: "Entry 1")
+    assert pixel(shot, x1 + w1 - 4, y1 + 4) == {255, 255, 255}
+  end
+
   # The colour at `x`, `y` of a PNG, through ImageMagick.
   defp pixel(png, x, y) do
     path = Path.join(System.tmp_dir!(), "gallery-#{System.unique_integer([:positive])}.png")

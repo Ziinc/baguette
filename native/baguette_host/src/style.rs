@@ -66,6 +66,12 @@ fn apply_one<S: Styled>(s: S, class: &str, theme: &Theme) -> S {
         "border-2" => s.border_2(),
         "border-l-2" => s.border_l_2(),
         "border-l-4" => s.border_l_4(),
+        "border-t" => s.border_t_1(),
+        "border-b" => s.border_b_1(),
+        "border-l" => s.border_l_1(),
+        "border-r" => s.border_r_1(),
+        "border-x" => s.border_x_1(),
+        "border-y" => s.border_y_1(),
         "grow" => s.flex_grow_1(),
         "shrink-0" => s.flex_shrink_0(),
         "items-start" => s.items_start(),
@@ -347,6 +353,21 @@ mod tests {
             assert!(refinement(class).is_none(), "{class}");
         }
         for class in ["rounded-tl-xl", "inset-0", "whitespace-nowrap"] {
+            apply(
+                tauri_plugin_gpui::gpui::div(),
+                [class].into_iter(),
+                &Theme::new(),
+            );
+            assert!(!reported(class), "{class} reported as unsupported");
+        }
+    }
+
+    // Tailwind's bare side borders are 1px, like `border`.
+    #[test]
+    fn side_borders_without_a_width_are_one_pixel() {
+        for class in [
+            "border-t", "border-b", "border-l", "border-r", "border-x", "border-y",
+        ] {
             apply(
                 tauri_plugin_gpui::gpui::div(),
                 [class].into_iter(),

@@ -113,7 +113,7 @@ struct Renderer<'a, 'c> {
     checks: &'a mut HashMap<String, CheckSlot>,
     lists: &'a mut HashMap<String, ListState>,
     focus: &'a mut HashMap<String, gpui::FocusHandle>,
-    animations: &'a mut HashMap<String, std::time::Instant>,
+    animations: &'a mut crate::animation::Clock,
     forms: HashMap<String, FormInfo>,
     form: Option<String>,
     seen: HashSet<String>,
@@ -216,22 +216,20 @@ impl Renderer<'_, '_> {
             .map(|(i, child)| self.render(child, &format!("{path}.{i}")))
             .collect();
 
-        // `animate="pulse|fade-in"`: its opacity over time, from when it
-        // first rendered; each frame asks for the next while it runs.
-        let opacity = attrs.get("animate").and_then(|kind| {
-            let started = *self
-                .animations
-                .entry(path.to_owned())
-                .or_insert_with(std::time::Instant::now);
-            let (opacity, running) =
-                crate::paint::opacity(kind, started.elapsed(), duration_of(attrs))?;
-            self.seen.insert(format!("animation:{path}"));
+        // `animate`, `animate-from`/`animate-to` (`animation.rs`): the style
+        // at this moment, over the classes; each frame asks for the next
+        // while it runs.
+        let mut base = base;
+        if let Some(spec) = crate::animation::Spec::from_attrs(attrs, theme) {
+            let elapsed = self.animations.elapsed(&crate::animation::key(attrs, path));
+            let (style, running) = spec.style_at(elapsed);
             if running {
                 self.window.request_animation_frame();
             }
-            Some(opacity)
-        });
-        let base = base.when_some(opacity, |el, opacity| el.opacity(opacity));
+            if let Some(style) = style {
+                gpui::Refineable::refine(base.style(), &style);
+            }
+        }
 
         let role = role_of(tag, attrs);
         let scroll = |class: &str| classes.split_whitespace().any(|c| c == class);
@@ -316,9 +314,13 @@ impl Renderer<'_, '_> {
         let on_click: Option<ClickHandler> =
             match (click_handler(window, attrs), self.submits(tag, attrs)) {
                 (Some(click), _) => Some(Box::new(click)),
-                (None, _) if picks(attrs) => {
+                (None, _) if crate::pick::Pick::from_attrs(window, attrs).is_some() => {
                     let attrs = attrs.clone();
-                    Some(Box::new(move |_, _, _| open_picker(window, &attrs)))
+                    Some(Box::new(move |_, _, _| {
+                        if let Some(pick) = crate::pick::Pick::from_attrs(window, &attrs) {
+                            pick.open();
+                        }
+                    }))
                 }
                 (None, Some(form)) => {
                     let root = self.cx.entity().downgrade();
@@ -683,25 +685,7 @@ fn render_icon(attrs: &BTreeMap<String, String>, theme: &Theme, id: &str) -> Any
     .into_any_element()
 }
 
-/// Whether the element is a file picker (`phx-pick-file`, `phx-pick-save`).
-fn picks(attrs: &BTreeMap<String, String>) -> bool {
-    attrs.contains_key("phx-pick-file") || attrs.contains_key("phx-pick-save")
-}
-
-#[cfg(feature = "api-pick")]
-fn open_picker(window: u32, attrs: &BTreeMap<String, String>) {
-    if let Some(pick) = crate::pick::Pick::from_attrs(window, attrs) {
-        pick.open();
-    }
-}
-
-/// A release without `:pick` (`Baguette.Release.Scan`) has no dialogs.
-#[cfg(not(feature = "api-pick"))]
-fn open_picker(_window: u32, _attrs: &BTreeMap<String, String>) {
-    crate::log_line("baguette: phx-pick-* needs the :pick API, which this release excludes");
-}
-
-/// The asset path of the icon called `name`, if this build embeds it.
+/// The asset path of the icon called `name`, if gpui-kit bundles it.
 pub fn icon_path(name: &str) -> Option<SharedString> {
     use gpui::AssetSource;
     let valid = !name.is_empty()
@@ -709,7 +693,7 @@ pub fn icon_path(name: &str) -> Option<SharedString> {
             .chars()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
     let path = format!("icons/{name}.svg");
-    (valid && matches!(crate::icons::Icons.load(&path), Ok(Some(_))))
+    (valid && matches!(gpui_kit::assets::AllAssets.load(&path), Ok(Some(_))))
         .then(|| SharedString::from(path))
 }
 
@@ -938,7 +922,7 @@ pub struct Root {
     lists: HashMap<String, ListState>,
     focus: HashMap<String, gpui::FocusHandle>,
     /// When each animated element first rendered.
-    animations: HashMap<String, std::time::Instant>,
+    animations: crate::animation::Clock,
     /// Key bindings already given to GPUI, which has no way to remove one.
     bound: HashSet<crate::keymap::Binding>,
     body: Option<gpui::FocusHandle>,
@@ -1117,7 +1101,7 @@ impl Root {
             checks: HashMap::new(),
             lists: HashMap::new(),
             focus: HashMap::new(),
-            animations: HashMap::new(),
+            animations: crate::animation::Clock::default(),
             bound: HashSet::new(),
             body: None,
             kept: Vec::new(),
@@ -1370,9 +1354,8 @@ impl gpui::Render for Root {
         focus.retain(|path, _| path.contains(".rows.") || seen.contains(&format!("focus:{path}")));
         self.inputs = inputs;
         self.checks = checks;
-        animations.retain(|path, _| {
-            path.contains(".rows.") || seen.contains(&format!("animation:{path}"))
-        });
+        // Start times outlive their element for a while: rows scroll back.
+        animations.prune();
         self.lists = lists;
         self.focus = focus;
         self.animations = animations;

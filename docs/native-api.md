@@ -158,12 +158,25 @@ tests both read it, so the two sides can't drift apart.
   `line`, `polyline`, `polygon` and `path` (absolute `M L H V C Q Z`),
   coloured by `fill-<color>` and `stroke-<color>` with `stroke-width`.
   `paint.rs` reads them and paints them with `gpui::canvas`, using
-  `paint_quad` and `PathBuilder`. `animate="pulse"` or `"fade-in"` with
-  `duration` (ms) animates an element's opacity from when it first
-  rendered, asking for animation frames while it runs, so the element keeps
-  its layout and stays observable. `<icon animate="spin">` turns with
-  `with_animation`. The gallery's e2e test checks the painted pixels and
-  that the pulse changes.
+  `paint_quad` and `PathBuilder`. The gallery's e2e test checks the
+  painted pixels.
+- **Animations** (`animation.rs`). Any element tweens its style from
+  `animate-from` to `animate-to` (classes; either defaults to its own
+  `class`). Every numeric and colour property GPUI's style holds
+  interpolates: opacity, background, text and border colours, font size,
+  sizes, insets, margins, padding, gaps, radii and border widths.
+  - Timing: `duration` and `delay` (ms), `easing` (GPUI's `linear`,
+    `quadratic`/`ease-in`, `ease-in-out`, `ease-out`, `bounce`, `pulsate`,
+    or `cubic-bezier(...)`), `repeat` (a count or `infinite`), `direction`
+    (`normal`, `reverse`, `alternate`, `alternate-reverse`) and `fill`
+    (`forwards` by default, as GPUI's `with_animation` holds the end;
+    `backwards`, `both`, `none`).
+  - Presets: `animate="pulse|fade-in|fade-out|flash"`, which those
+    attributes adjust. `<icon animate="spin">` turns with `with_animation`.
+  - An animation starts when its element first renders, keyed by its `id`
+    (else its path), so a prepended row keeps or starts its own; a new
+    `id` starts a new one. The host asks for animation frames only while
+    one runs, and the element keeps its layout and stays observable.
 - **Generated style attributes** (step 8). `mix baguette.styles` reads
   `gpui-pre`'s rustdoc JSON (this needs nightly) and writes `style_gen.rs`.
   That file is a sorted table with one class per argument-free `Styled`
@@ -172,27 +185,6 @@ tests both read it, so the two sides can't drift apart.
   table after its own classes, so the hand-written meanings win. The file
   is committed and builds use stable Rust. Run the task again after a
   GPUI bump.
-
-## Leaving APIs out
-
-A release leaves out of its host what its source doesn't use, as Tailwind
-does with classes (`Baguette.Release.Scan`):
-
-- `:pick` (`phx-pick-*`, tauri-plugin-dialog) and `:open_url`
-  (tauri-plugin-opener) are the `api-pick` and `api-open-url` Cargo
-  features, on by default. A release turns off each one its source never
-  mentions, so neither crate is compiled.
-- Icons: the scan's kebab-case words go to `build.rs`
-  (`BAGUETTE_ICONS_FILE`). It keeps those that name an icon in gpui-kit's
-  catalog and serves them with gpui-kit-assets' `icon_assets!`, along with
-  gpui-kit's own component icons, in place of the whole 1,830-icon
-  `AllAssets`.
-- Release options: `exclude: [:pick, :open_url]`, `scan: false` or
-  `scan: [paths: [...]]`, and `safelist: [apis: [...], icons: [...]]` for
-  names the source only builds at run time.
-- Anything left out draws nothing and is logged once. Under `mix test`,
-  `Baguette.Test` raises when a view renders a left-out icon or picker, and
-  `Baguette.App.open_url/1` raises when `:open_url` is out.
 
 ## Next, in order
 

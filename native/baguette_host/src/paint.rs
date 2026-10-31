@@ -16,7 +16,6 @@
 //! `stroke-width` (default 1).
 
 use std::collections::BTreeMap;
-use std::time::Duration;
 
 use tauri_plugin_gpui::gpui::{self, Hsla, Pixels, Point, point, px};
 
@@ -259,18 +258,6 @@ fn trace(
     }
 }
 
-/// `animate="..."` on an element: how opaque it is `elapsed` into an
-/// animation of length `period`, and whether it is still running.
-pub fn opacity(kind: &str, elapsed: Duration, period: Duration) -> Option<(f32, bool)> {
-    let t = elapsed.as_secs_f32() / period.as_secs_f32().max(0.001);
-    match kind {
-        // Fades from 1 to 0.4 and back, forever.
-        "pulse" => Some((0.7 + 0.3 * (t * std::f32::consts::TAU).cos(), true)),
-        "fade-in" => Some((t.min(1.), t < 1.)),
-        _ => None,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,16 +346,5 @@ mod tests {
         // Stops at what it doesn't know (relative commands, arcs).
         assert_eq!(path("M 1 1 l 2 2 L 5 5"), vec![Segment::Move(1., 1.)]);
         assert_eq!(path("M 1"), vec![]);
-    }
-
-    #[test]
-    fn times_animations() {
-        let ms = Duration::from_millis;
-        assert_eq!(opacity("pulse", ms(0), ms(1000)), Some((1., true)));
-        let (half, _) = opacity("pulse", ms(500), ms(1000)).unwrap();
-        assert!((half - 0.4).abs() < 1e-4);
-        assert_eq!(opacity("fade-in", ms(250), ms(1000)), Some((0.25, true)));
-        assert_eq!(opacity("fade-in", ms(2000), ms(1000)), Some((1., false)));
-        assert_eq!(opacity("wobble", ms(0), ms(1000)), None);
     }
 }
