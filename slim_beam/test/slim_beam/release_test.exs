@@ -70,3 +70,20 @@ defmodule SlimBeam.ReleaseTest do
 
   defp charlist_env(env), do: for({k, v} <- env, do: {~c"#{k}", ~c"#{v}"})
 end
+
+defmodule SlimBeam.ReleaseErtsTest do
+  use ExUnit.Case, async: false
+
+  alias SlimBeam.Fixture
+
+  @moduletag timeout: 300_000
+
+  test "trims ERTS to the executables kept" do
+    {path, _out} = Fixture.release!([erts: [keep: ["erl_child_setup", "inet_gethost"]]], "erts")
+    [erts] = Path.wildcard(Path.join(path, "erts-*"))
+
+    assert Enum.sort(File.ls!(Path.join(erts, "bin"))) == ["erl_child_setup", "inet_gethost"]
+    refute File.exists?(Path.join(erts, "include"))
+    refute File.exists?(Path.join(erts, "lib"))
+  end
+end

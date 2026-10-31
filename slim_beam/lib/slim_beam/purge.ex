@@ -3,7 +3,7 @@ defmodule SlimBeam.Purge do
   # Removes the modules `SlimBeam.Plan` finds unreachable from an assembled
   # release, then rewrites the `.app` files and boot scripts that list them.
 
-  alias SlimBeam.Plan
+  alias SlimBeam.{Files, Plan}
 
   @doc "Purges `release`. Returns the files removed, as report entries."
   def run(%Mix.Release{} = release, opts) do
@@ -12,9 +12,7 @@ defmodule SlimBeam.Purge do
     removed =
       for {module, app} <- Enum.sort(plan.purge) do
         path = Path.join(ebin(release, app), "#{module}.beam")
-        bytes = File.stat!(path).size
-        File.rm!(path)
-        %{path: Path.relative_to(path, release.path), bytes: bytes, reason: "unreachable"}
+        Files.remove!(release.path, Path.relative_to(path, release.path), "unreachable")
       end
 
     by_app = Enum.group_by(Map.keys(plan.purge), &plan.purge[&1])

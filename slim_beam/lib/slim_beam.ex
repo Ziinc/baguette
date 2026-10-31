@@ -28,13 +28,22 @@ defmodule SlimBeam do
       they reach, and apps to keep whole. A module reached only by a computed
       name (`Module.concat/1`, `String.to_atom/1`) belongs here.
     * `purge: false` turns the purge off.
+
+  ## ERTS trim
+
+  `erts: [keep: ["erl_child_setup", "inet_gethost"]]` keeps only those
+  executables in `erts-*/bin` and drops `erts-*/include`, `lib`, `doc` and
+  `man`. Off by default: without `beam.smp` and `erlexec` the release's own
+  `bin/<name>` script can no longer start it. It is for hosts that embed the
+  BEAM and start the release themselves.
   """
 
   @doc "The release step."
   @spec step(Mix.Release.t()) :: Mix.Release.t()
   def step(%Mix.Release{} = release) do
     opts = release.options[:slim_beam] || []
-    removed = if Keyword.get(opts, :purge, true), do: SlimBeam.Purge.run(release, opts), else: []
+    purged = if Keyword.get(opts, :purge, true), do: SlimBeam.Purge.run(release, opts), else: []
+    removed = purged ++ SlimBeam.Erts.run(release.path, opts[:erts] || [])
     Mix.shell().info([:green, "* slim_beam ", :reset, "removed #{length(removed)} files"])
     release
   end
