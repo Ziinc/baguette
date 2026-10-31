@@ -1,8 +1,0 @@
-/_build/
-/deps/
-/cover/
-/doc/
-/tmp/
-erl_crash.dump
-/test/fixtures/*/_build/
-/test/fixtures/*/deps/

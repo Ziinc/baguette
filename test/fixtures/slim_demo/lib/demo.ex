@@ -13,9 +13,16 @@ end
 
 defmodule Demo.Application do
   use Application
+  require Logger
 
   def start(_type, _args) do
-    if System.get_env("DEMO_BOOT_CHECK"), do: spawn(fn -> IO.puts(Demo.hello()) end)
+    if System.get_env("DEMO_BOOT_CHECK") do
+      spawn(fn ->
+        Logger.info("demo booted")
+        IO.puts(Demo.hello())
+      end)
+    end
+
     Supervisor.start_link([], strategy: :one_for_one)
   end
 end

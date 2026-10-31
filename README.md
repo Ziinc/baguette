@@ -39,21 +39,26 @@ build it with `scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang` and set
 
 ### Smaller releases
 
-The host links the BEAM, so `package/1` trims the release's ERTS to the two
-programs that BEAM starts, `erl_child_setup` and `inet_gethost`. That takes
-the Firehose release's Elixir side from 78 MB to 18 MB. Start the app with
-`bin/firehose_app`; `bin/firehose` can no longer start the release.
+`package/1` trims every release to what it runs:
 
-[SlimBeam](slim_beam), which Baguette depends on, also removes the code a
-release can't reach. List its step before `package/1`:
+- **Code:** it removes the modules nothing in the release can reach,
+  Elixir's, IEx's and the dependencies' included. `kernel`, `stdlib`,
+  `logger`, `telemetry` and the OTP apps that dispatch on computed names
+  (`crypto`, `ssl`, `public_key`, `inets`, `asn1`) stay whole. Keep anything
+  it can't see, such as a module reached by `Module.concat/1` or a debugging
+  tool like `recon`, with
+  `baguette: [keep: [modules: [MyDep.Plugin], apps: [:recon]]]`.
+- **ERTS:** the host links the BEAM, so it keeps only `erl_child_setup` and
+  `inet_gethost`. Start the app with `bin/<name>_app`; `bin/<name>` can no
+  longer start the release.
+- **Files:** `lib/*/src`, `lib/*/include` and `lib/*/doc`, plus the globs in
+  `prune:`.
 
-```elixir
-firehose: [
-  steps: [:assemble, &SlimBeam.step/1, &Baguette.Release.package/1, &Baguette.Release.bundle/1]
-]
-```
-
-To keep modules it can't see, see the [SlimBeam README](slim_beam/README.md).
+`releases/<vsn>/slim.json` lists what went and why (`Baguette.Release.Slim`).
+To catch a module the release reaches only by a computed name, add
+`ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)` to
+`test_helper.exs`: it fails the suite when the tests load a module the
+release would purge.
 
 ## A view
 

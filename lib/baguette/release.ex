@@ -13,6 +13,10 @@ defmodule Baguette.Release do
   programs that BEAM starts (`trim_erts!/1`), so `bin/<release>` no longer
   works.
 
+  First, on every platform, it removes the code the release can't reach
+  (`Baguette.Release.Slim`). Keep modules it can't see with
+  `baguette: [keep: [modules: [...], apps: [...]]]`.
+
   Host Cargo features are a release option:
 
       my_app: [steps: [...], baguette: [host_features: ["some_feature"]]]
@@ -36,7 +40,7 @@ defmodule Baguette.Release do
   `android/1` builds an APK instead.
   """
 
-  alias Baguette.Release.AndroidNifs
+  alias Baguette.Release.{AndroidNifs, Slim}
 
   # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
   @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
@@ -134,6 +138,7 @@ defmodule Baguette.Release do
 
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
+    release = Slim.run(release)
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
   end
 

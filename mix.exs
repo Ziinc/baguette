@@ -11,6 +11,11 @@ defmodule Baguette.MixProject do
       elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      # test/fixtures holds projects with tests of their own.
+      test_load_filters: [
+        &(&1 =~ ~r"_test\.exs$" and not String.starts_with?(&1, "test/fixtures/"))
+      ],
+      test_ignore_filters: [~r"^test/fixtures/"],
       deps: deps(),
       description: "Native GPUI applications written in Elixir.",
       source_url: @source_url,
@@ -49,8 +54,6 @@ defmodule Baguette.MixProject do
       # checksums, or with BAGUETTE_BUILD_NIF.
       {:rustler_precompiled, "~> 0.8"},
       {:rustler, "~> 0.38", runtime: false},
-      # The SlimBeam release step, for apps to list (see the README).
-      {:slim_beam, path: "slim_beam", runtime: false},
       {:phoenix_live_view, "~> 1.2"},
       {:floki, "~> 0.38"},
       # Baguette.Playwright: end-to-end tests through gpui-playwright.

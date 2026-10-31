@@ -1,4 +1,4 @@
-defmodule SlimBeam.PruneTest do
+defmodule Baguette.Release.Slim.PruneTest do
   use ExUnit.Case, async: true
 
   @moduletag :tmp_dir
@@ -15,7 +15,7 @@ defmodule SlimBeam.PruneTest do
   end
 
   test "removes the default globs", %{tmp_dir: root} do
-    removed = SlimBeam.Prune.run(root, [])
+    removed = Baguette.Release.Slim.Prune.run(root, [])
 
     assert Enum.sort(removed) == [
              %{path: "lib/a-1/doc", bytes: 5, reason: "prune: lib/*/doc"},
@@ -27,7 +27,7 @@ defmodule SlimBeam.PruneTest do
   end
 
   test "adds the user's globs", %{tmp_dir: root} do
-    removed = SlimBeam.Prune.run(root, ["lib/*/priv/*.txt"])
+    removed = Baguette.Release.Slim.Prune.run(root, ["lib/*/priv/*.txt"])
 
     assert %{path: "lib/a-1/priv/big.txt", bytes: 5, reason: "prune: lib/*/priv/*.txt"} in removed
     assert File.exists?(Path.join(root, "lib/a-1/priv/keep.so"))

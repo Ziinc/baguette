@@ -1,4 +1,4 @@
-defmodule SlimBeam.Fake do
+defmodule Baguette.Release.Slim.Fake do
   @moduledoc false
   # Fake release layouts for tests, built from Erlang sources so that
   # nothing is loaded into the test VM.

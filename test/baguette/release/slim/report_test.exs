@@ -1,4 +1,4 @@
-defmodule SlimBeam.ReportTest do
+defmodule Baguette.Release.Slim.ReportTest do
   use ExUnit.Case, async: true
 
   @moduletag :tmp_dir
@@ -15,7 +15,7 @@ defmodule SlimBeam.ReportTest do
       File.write!(path, String.duplicate("x", bytes))
     end
 
-    assert SlimBeam.Report.sizes(root) == %{
+    assert Baguette.Release.Slim.Report.sizes(root) == %{
              total: 13,
              erts: 7,
              lib: 5,

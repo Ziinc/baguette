@@ -1,9 +1,9 @@
-defmodule SlimBeam.Prune do
+defmodule Baguette.Release.Slim.Prune do
   @moduledoc false
   # Removes the files and directories that match the default globs and the
   # user's, relative to the release root.
 
-  alias SlimBeam.Files
+  alias Baguette.Release.Slim.Files
 
   @defaults ["lib/*/src", "lib/*/include", "lib/*/doc"]
 

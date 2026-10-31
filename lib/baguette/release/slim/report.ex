@@ -1,7 +1,7 @@
-defmodule SlimBeam.Report do
+defmodule Baguette.Release.Slim.Report do
   @moduledoc """
   The size of a release before and after slimming, and what was removed and
-  why, written to `releases/<vsn>/slim_beam.json`:
+  why, written to `releases/<vsn>/slim.json`:
 
       {
         "before": {"total": 41000000, "erts": ..., "lib": ..., "releases": ...,
@@ -15,7 +15,7 @@ defmodule SlimBeam.Report do
   a pruned file.
   """
 
-  alias SlimBeam.Files
+  alias Baguette.Release.Slim.Files
 
   @doc "Bytes in the release at `root`: in all, per top-level directory and per app."
   @spec sizes(Path.t()) :: map()

@@ -1,4 +1,4 @@
-defmodule SlimBeam.Files do
+defmodule Baguette.Release.Slim.Files do
   @moduledoc false
 
   @doc "The bytes in `path`: a file's size, or the sum of a directory's files."

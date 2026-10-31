@@ -1,8 +1,8 @@
-defmodule SlimBeam.ReleaseTest do
+defmodule Baguette.Release.Slim.ReleaseTest do
   # Builds the fixture release, so the tests take turns.
   use ExUnit.Case, async: false
 
-  alias SlimBeam.Fixture
+  alias Baguette.Release.Slim.Fixture
 
   @moduletag timeout: 300_000
 
@@ -23,9 +23,18 @@ defmodule SlimBeam.ReleaseTest do
         do: assert("Elixir.#{kept}.beam" in beams)
   end
 
-  test "keeps the project's own apps and OTP whole", %{path: path} do
+  test "keeps the project's own apps whole", %{path: path} do
     assert File.exists?(Path.join(Fixture.ebin(path, :demo), "Elixir.Demo.beam"))
-    assert File.exists?(Path.join(Fixture.ebin(path, :stdlib), "gb_sets.beam"))
+  end
+
+  test "purges Elixir and IEx, but keeps kernel, stdlib and logger whole", %{path: path} do
+    unreachable =
+      for %{"reason" => "unreachable", "path" => file} <- report(path)["removed"],
+          do: file |> Path.split() |> Enum.at(1) |> String.replace(~r/-[^-]*$/, "")
+
+    assert "elixir" in unreachable
+    assert "iex" in unreachable
+    for app <- ~w(kernel stdlib logger), do: refute(app in unreachable, app)
   end
 
   test "rewrites the .app modules list", %{path: path} do
@@ -50,8 +59,7 @@ defmodule SlimBeam.ReleaseTest do
   end
 
   test "writes a report of what was removed and why", %{path: path} do
-    [json] = Path.wildcard(Path.join(path, "releases/*/slim_beam.json"))
-    report = json |> File.read!() |> JSON.decode!()
+    report = report(path)
 
     assert report["before"]["total"] > report["after"]["total"]
     assert report["before"]["apps"]["demo_dep"] > report["after"]["apps"]["demo_dep"]
@@ -70,7 +78,7 @@ defmodule SlimBeam.ReleaseTest do
     assert out =~ "hello,configured,runtime,safe,struct 1"
   end
 
-  test "the slimmed release boots in embedded mode", %{path: path} do
+  test "the slimmed release boots in embedded mode and logs", %{path: path} do
     node = "demo_#{System.unique_integer([:positive])}"
     env = [{"DEMO_BOOT_CHECK", "1"}, {"RELEASE_MODE", "embedded"}, {"RELEASE_NODE", node}]
 
@@ -85,8 +93,25 @@ defmodule SlimBeam.ReleaseTest do
 
     on_exit(fn -> Fixture.run(path, ["stop"], [{"RELEASE_NODE", node}]) end)
 
-    assert_receive {^port, {:data, out}}, 30_000
-    assert out =~ "hello,configured,runtime,safe,struct 1"
+    out = read_until(port, ["demo booted", "hello,configured,runtime,safe,struct 1"], "")
+    assert out =~ "[info] demo booted"
+  end
+
+  defp read_until(port, needles, out) do
+    if Enum.all?(needles, &(out =~ &1)) do
+      out
+    else
+      receive do
+        {^port, {:data, data}} -> read_until(port, needles, out <> data)
+      after
+        30_000 -> flunk("the release printed only:\n" <> out)
+      end
+    end
+  end
+
+  defp report(path) do
+    [json] = Path.wildcard(Path.join(path, "releases/*/slim.json"))
+    json |> File.read!() |> JSON.decode!()
   end
 
   defp charlist_env(env), do: for({k, v} <- env, do: {~c"#{k}", ~c"#{v}"})

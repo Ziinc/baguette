@@ -1,4 +1,4 @@
-defmodule SlimBeam.Plan do
+defmodule Baguette.Release.Slim.Plan do
   @moduledoc """
   Which modules a release can reach, and which it can do without.
 

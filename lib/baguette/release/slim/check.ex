@@ -1,21 +1,29 @@
-defmodule SlimBeam.Check do
+defmodule Baguette.Release.Slim.Check do
   @moduledoc """
   Fails `mix test` when the suite loads a module the release would purge.
 
       # test/test_helper.exs
-      ExUnit.after_suite(&SlimBeam.Check.loaded!/1)
+      ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)
       ExUnit.start()
 
   It plans the purge over the current environment's code paths for the
-  release's apps, with the release's `slim_beam:` options. The roots stand
+  release's apps, with the release's `baguette:` options. The roots stand
   in for `sys.config` with every module and atom named in `config/**/*.exs`,
   read without running them. A module the tests load but the plan purges is
   one the release reaches only by a computed name: add it to the release's `keep:` list.
 
-  With several releases, name one: `&SlimBeam.Check.loaded!(&1, release: :my_app)`.
+  Elixir's own apps are left out of the check, because Mix and ExUnit load
+  their modules themselves.
+
+  With several releases, name one: `&Baguette.Release.Slim.Check.loaded!(&1, release: :my_app)`.
   """
 
-  alias SlimBeam.Plan
+  alias Baguette.Release.Slim
+  alias Baguette.Release.Slim.Plan
+
+  # Mix and ExUnit load Elixir's own modules themselves, so the check leaves
+  # these apps out.
+  @tooling_apps [:elixir, :eex, :iex, :logger, :mix, :ex_unit]
 
   @doc "The `ExUnit.after_suite/1` callback. Makes `mix test` exit 1 on a violation."
   @spec loaded!(map(), keyword()) :: :ok
@@ -35,7 +43,11 @@ defmodule SlimBeam.Check do
   @spec purged_loaded(keyword()) :: [{module(), atom()}]
   def purged_loaded(opts \\ []) do
     %{purge: purge} = plan(opts)
-    for {module, _} <- :code.all_loaded(), app = purge[module], do: {module, app}
+
+    for {module, _} <- :code.all_loaded(),
+        app = purge[module],
+        app not in @tooling_apps,
+        do: {module, app}
   end
 
   @doc "The release's plan over the current code paths."
@@ -43,7 +55,7 @@ defmodule SlimBeam.Check do
   def plan(opts \\ []) do
     config = Mix.Project.config()
     release = Mix.Release.from_config!(opts[:release], config, [])
-    slim = release.options[:slim_beam] || []
+    slim = Slim.options(release)
 
     apps =
       for {app, props} <- release.applications,
@@ -58,8 +70,8 @@ defmodule SlimBeam.Check do
       Enum.flat_map(Path.wildcard(Path.join(config_dir, "**/*.exs")), &Plan.exs_atoms/1)
 
     Plan.build(apps,
-      purgeable: SlimBeam.purgeable(Keyword.keys(apps), SlimBeam.project_apps(), slim),
-      roots: config_atoms ++ SlimBeam.kept_modules(slim),
+      purgeable: Slim.purgeable(Keyword.keys(apps), Slim.project_apps(), slim),
+      roots: config_atoms ++ Slim.kept_modules(slim),
       consolidated:
         if(config[:consolidate_protocols] && File.dir?(consolidated), do: consolidated)
     )
@@ -71,14 +83,14 @@ defmodule SlimBeam.Check do
 
     """
 
-    SlimBeam: the tests loaded modules the release would purge:
+    Baguette: the tests loaded modules the release would purge:
 
     #{list}
 
     The release reaches them only by a computed name. Keep them with the
     release's keep list:
 
-        slim_beam: [keep: [modules: [#{Enum.map_join(Enum.sort(modules), ", ", &inspect(elem(&1, 0)))}]]]
+        baguette: [keep: [modules: [#{Enum.map_join(Enum.sort(modules), ", ", &inspect(elem(&1, 0)))}]]]
     """
   end
 end

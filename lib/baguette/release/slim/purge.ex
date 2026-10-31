@@ -1,9 +1,13 @@
-defmodule SlimBeam.Purge do
+defmodule Baguette.Release.Slim.Purge do
   @moduledoc false
-  # Removes the modules `SlimBeam.Plan` finds unreachable from an assembled
-  # release, then rewrites the `.app` files and boot scripts that list them.
+  # Removes the modules `Baguette.Release.Slim.Plan` finds unreachable from
+  # an assembled release, then rewrites the `.app` files and boot scripts that list them.
 
-  alias SlimBeam.{Files, Plan}
+  # systools is sasl's, which Mix has loaded by the time a release step runs.
+  @compile {:no_warn_undefined, :systools}
+
+  alias Baguette.Release.Slim
+  alias Baguette.Release.Slim.{Files, Plan}
 
   @doc "Purges `release`. Returns the files removed, as report entries."
   def run(%Mix.Release{} = release, opts) do
@@ -31,8 +35,8 @@ defmodule SlimBeam.Purge do
     consolidated = Path.join(release.version_path, "consolidated")
 
     Plan.build(apps,
-      purgeable: SlimBeam.purgeable(Keyword.keys(apps), SlimBeam.project_apps(), opts),
-      roots: config_atoms(release.version_path) ++ SlimBeam.kept_modules(opts),
+      purgeable: Slim.purgeable(Keyword.keys(apps), Slim.project_apps(), opts),
+      roots: config_atoms(release.version_path) ++ Slim.kept_modules(opts),
       consolidated: if(File.dir?(consolidated), do: consolidated)
     )
   end

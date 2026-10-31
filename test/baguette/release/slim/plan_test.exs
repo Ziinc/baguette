@@ -1,7 +1,7 @@
-defmodule SlimBeam.PlanTest do
+defmodule Baguette.Release.Slim.PlanTest do
   use ExUnit.Case, async: true
 
-  alias SlimBeam.{Fake, Plan}
+  alias Baguette.Release.Slim.{Fake, Plan}
 
   @moduletag :tmp_dir
 
