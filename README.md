@@ -37,6 +37,24 @@ The host links a prebuilt BEAM (`liberlang.a`) for your OTP version, which
 build it with `scripts/build-liberlang.sh OTP-29.1.2 ~/liberlang` and set
 `BAGUETTE_LIBERLANG=~/liberlang`.
 
+### Smaller releases
+
+[SlimBeam](slim_beam) trims a release. Baguette depends on it, so an app
+only has to list the step before `package/1`:
+
+```elixir
+firehose: [
+  steps: [:assemble, &SlimBeam.step/1, &Baguette.Release.package/1, &Baguette.Release.bundle/1],
+  slim_beam: [erts: [keep: ["erl_child_setup", "inet_gethost"]]]
+]
+```
+
+The host links the BEAM, so of ERTS it needs only `erl_child_setup` and
+`inet_gethost`. Removing the rest takes the Firehose release's Elixir side
+from 78 MB to 18 MB. Afterwards `bin/firehose` can't start the release, but
+`bin/firehose_app` still can. Purging unreachable dependency modules is on
+by default. For safelisting, see the [SlimBeam README](slim_beam/README.md).
+
 ## A view
 
 ```elixir
