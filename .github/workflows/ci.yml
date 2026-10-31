@@ -100,6 +100,12 @@ jobs:
         run: scripts/e2e-linux.sh e2e-screenshots
         timeout-minutes: 20
       - name: Releases with gpui-playwright, driven from ExUnit
+        # TAO reads the colour scheme from the XDG desktop portal over the
+        # session bus, 5 s per call, and the runner's portal never answers:
+        # each app took 35 s to start. With no bus to reach, it falls back
+        # at once.
+        env:
+          DBUS_SESSION_BUS_ADDRESS: unix:path=/nonexistent/bus
         run: |
           for app in counter board todo gallery playwright; do
             (cd examples/$app && mix deps.get && \
@@ -109,7 +115,8 @@ jobs:
           xvfb-run -a mix test --only playwright
           # Tally drives its release with playwright_ex directly.
           (cd examples/playwright && xvfb-run -a mix test --only playwright)
-        timeout-minutes: 30
+        # Most of it is building each example's host with Cargo.
+        timeout-minutes: 45
       - name: Tauri bundles (deb, AppImage) install and boot the release
         run: scripts/bundle-test-linux.sh examples/broadway Firehose bundle-test
         timeout-minutes: 30
