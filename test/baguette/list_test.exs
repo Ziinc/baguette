@@ -74,6 +74,65 @@ defmodule Baguette.ListTest do
     assert_raise ArgumentError, ~r/no list "nope"/, fn -> Test.show_rows(window, "nope", 0..1) end
   end
 
+  defmodule Plain do
+    # A list without an id is keyed by its path, as the host keys it; one
+    # inside another's rows by its path there.
+    use Baguette.View
+
+    def mount(_args), do: {:ok, %{label: "Row"}}
+
+    def render(assigns) do
+      ~H"""
+      <div><list rows="100" phx-rows="outer" /></div>
+      """
+    end
+
+    def handle_rows("outer", range, assigns) do
+      rows =
+        for i <- range do
+          assigns = %{i: i, label: assigns.label}
+
+          ~H"""
+          <div><text>{@label} {@i}</text><list id={"inner-#{@i}"} rows="5" phx-rows="inner" /></div>
+          """
+        end
+
+      {:reply, rows, assigns}
+    end
+
+    def handle_rows("inner", range, assigns),
+      do: {:reply, Enum.map(range, &"#{assigns.label} sub #{&1}"), assigns}
+
+    def handle_event("rename", _values, assigns), do: {:noreply, %{assigns | label: "Item"}}
+  end
+
+  test "lists without an id, and lists in rows, keep their rows through renders" do
+    window = System.unique_integer([:positive])
+    start_supervised!({Plain, window: window})
+
+    ask(window, "outer", "root.0", 0..1)
+    ask(window, "inner", "inner-0", 0..1)
+    send_event(window, "rename")
+
+    lists = Baguette.Host.last_frame(window)["lists"]
+    assert %{"start" => 0, "rows" => [_, _]} = lists["root.0"]
+    assert %{"start" => 0, "rows" => ["Item sub 0", "Item sub 1"]} = lists["inner-0"]
+  end
+
+  defp ask(window, event, id, first..last//1) do
+    Baguette.Host.dispatch(%{
+      "type" => "rows",
+      "window" => window,
+      "event" => event,
+      "id" => id,
+      "start" => first,
+      "end" => last + 1,
+      "visible" => [first, last + 1]
+    })
+
+    Test.text(window)
+  end
+
   defp send_event(window, event) do
     Baguette.Host.dispatch(%{"type" => "click", "window" => window, "event" => event})
     Test.text(window)

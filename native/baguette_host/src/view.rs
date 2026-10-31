@@ -925,6 +925,8 @@ pub struct Root {
     animations: crate::animation::Clock,
     /// Set when a patch didn't fit: patches wait for the whole frame.
     desynced: bool,
+    /// Lists rendered in other lists' rows since the last render.
+    row_lists: HashSet<String>,
     body: Option<gpui::FocusHandle>,
     /// Subscriptions that live as long as the window.
     kept: Vec<Subscription>,
@@ -1069,12 +1071,16 @@ impl Root {
                 seen: HashSet::new(),
                 keydowns: Vec::new(),
             };
-            range
+            let rows = range
                 .map(|i| match list.rows.get(&i) {
                     Some(node) => renderer.render(node, &format!("{}.rows.{i}", list.path)),
                     None => gpui::div().h(gpui::px(list.row_height)).into_any_element(),
                 })
-                .collect()
+                .collect();
+            // Lists in these rows keep their state through the next render.
+            let nested = renderer.seen.into_iter().filter(|k| k.starts_with("list:"));
+            self.row_lists.extend(nested);
+            rows
         };
         lists.insert(key.to_owned(), list);
         self.lists = lists;
@@ -1096,6 +1102,7 @@ impl Root {
             focus: HashMap::new(),
             animations: crate::animation::Clock::default(),
             desynced: false,
+            row_lists: HashSet::new(),
             body: None,
             kept: Vec::new(),
             forms: HashMap::new(),
@@ -1343,7 +1350,11 @@ impl gpui::Render for Root {
         let kept = |path: &String| seen.contains(path) || path.contains(".rows.");
         inputs.retain(|path, _| kept(path));
         checks.retain(|path, _| kept(path));
-        lists.retain(|key, _| seen.contains(&format!("list:{key}")));
+        let row_lists = std::mem::take(&mut self.row_lists);
+        lists.retain(|key, _| {
+            let key = format!("list:{key}");
+            seen.contains(&key) || row_lists.contains(&key)
+        });
         focus.retain(|path, _| path.contains(".rows.") || seen.contains(&format!("focus:{path}")));
         self.inputs = inputs;
         self.checks = checks;

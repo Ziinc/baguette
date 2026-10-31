@@ -176,20 +176,13 @@ defmodule Baguette.View do
 
   defp push(state) do
     root = state.assigns |> state.module.render() |> Baguette.Tree.from_rendered()
-    counts = list_counts(root, %{})
-    state = %{state | lists: Map.take(state.lists, Map.keys(counts))}
-
-    {lists, state} =
-      Enum.flat_map_reduce(state.lists, state, fn {id, %{event: event, visible: {first, last}}},
-                                                  state ->
-        {rows, state} = rows(state, event, first, min(last, counts[id]))
-        {[{id, %{"start" => first, "rows" => rows}}], state}
-      end)
+    {lists, rendered, state} = render_lists(state, list_counts(root, "root", %{}), %{}, %{})
+    state = %{state | lists: Map.take(state.lists, Map.keys(rendered))}
 
     frame = %{
       "theme" => state.theme,
       "root" => root,
-      "lists" => Map.new(lists),
+      "lists" => lists,
       "keymap" => keymap(state.module)
     }
 
@@ -212,10 +205,49 @@ defmodule Baguette.View do
     {Enum.map(rows, &Baguette.Tree.from_rendered/1), %{state | assigns: assigns}}
   end
 
-  # Each `<list>`'s row count, by id.
-  defp list_counts(%{"t" => "list", "a" => %{"id" => id} = attrs}, acc),
-    do: Map.put(acc, id, String.to_integer(attrs["rows"] || "0"))
+  # Renders the on-screen rows of each list in `counts` that the host has
+  # asked about, then those of the lists in these rows. Returns the rows by
+  # list, every list found and the state.
+  defp render_lists(state, counts, segments, found) do
+    found = Map.merge(found, counts)
 
-  defp list_counts(%{"c" => children}, acc), do: Enum.reduce(children, acc, &list_counts/2)
-  defp list_counts(_node, acc), do: acc
+    {segments, nested, state} =
+      Enum.reduce(counts, {segments, %{}, state}, fn {key, {count, path}},
+                                                     {segments, nested, state} ->
+        case state.lists do
+          %{^key => %{event: event, visible: {first, last}}} ->
+            {rows, state} = rows(state, event, first, min(last, count))
+
+            nested =
+              rows
+              |> Enum.with_index(first)
+              |> Enum.reduce(nested, fn {row, i}, acc ->
+                list_counts(row, "#{path}.rows.#{i}", acc)
+              end)
+
+            {Map.put(segments, key, %{"start" => first, "rows" => rows}), nested, state}
+
+          _ ->
+            {segments, nested, state}
+        end
+      end)
+
+    case Map.drop(nested, Map.keys(found)) do
+      new when map_size(new) == 0 -> {segments, found, state}
+      new -> render_lists(state, new, segments, found)
+    end
+  end
+
+  # Each `<list>`'s row count and element path, by its key: its `id`, else
+  # its path, numbered as the host numbers elements.
+  defp list_counts(%{"t" => "list", "a" => attrs}, path, acc),
+    do: Map.put(acc, attrs["id"] || path, {String.to_integer(attrs["rows"] || "0"), path})
+
+  defp list_counts(%{"c" => children}, path, acc) do
+    children
+    |> Enum.with_index()
+    |> Enum.reduce(acc, fn {child, i}, acc -> list_counts(child, "#{path}.#{i}", acc) end)
+  end
+
+  defp list_counts(_node, _path, acc), do: acc
 end
