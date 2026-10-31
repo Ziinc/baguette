@@ -14,7 +14,7 @@ defmodule Baguette.MixProject do
       deps: deps(),
       description: "Native GPUI applications written in Elixir.",
       source_url: @source_url,
-      package: [licenses: ["MIT"], links: %{"GitHub" => @source_url}]
+      package: package()
     ]
   end
 
@@ -22,12 +22,33 @@ defmodule Baguette.MixProject do
     [extra_applications: [:logger], mod: {Baguette.Application, []}]
   end
 
+  # Sources for the native host, which `mix release` builds; the NIF comes
+  # precompiled, with its checksums.
+  defp package do
+    host = ~w(src build.rs Cargo.toml capabilities dist icons tauri.conf.json package.json
+              package-lock.json)
+
+    [
+      licenses: ["MIT"],
+      links: %{"GitHub" => @source_url},
+      files:
+        ~w(lib priv/components priv/liberlang.sha256 scripts mix.exs README.md LICENSE
+           .formatter.exs checksum-Elixir.Baguette.Native.exs native/Cargo.toml
+           native/Cargo.lock native/baguette_abi native/baguette_nif) ++
+          Enum.map(host, &"native/baguette_host/#{&1}")
+    ]
+  end
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
   defp deps do
     [
-      {:rustler, "~> 0.38"},
+      # The NIF is precompiled (Baguette.Native.Precompiled). Rustler builds
+      # it from source: in a checkout or a git dependency, which have no
+      # checksums, or with BAGUETTE_BUILD_NIF.
+      {:rustler_precompiled, "~> 0.8"},
+      {:rustler, "~> 0.38", runtime: false},
       {:phoenix_live_view, "~> 1.2"},
       {:floki, "~> 0.38"},
       # Baguette.Playwright: end-to-end tests through gpui-playwright.

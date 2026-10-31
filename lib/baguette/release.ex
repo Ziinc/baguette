@@ -35,6 +35,9 @@ defmodule Baguette.Release do
 
   alias Baguette.Release.AndroidNifs
 
+  # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
+  @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
+
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
     "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
@@ -72,12 +75,91 @@ defmodule Baguette.Release do
     end
   end
 
+  @doc """
+  Where the release's host comes from:
+
+    * `{:local, path}` - `BAGUETTE_HOST_BINARY`, a host built elsewhere.
+    * `:build` - built from source with Cargo, for a component set other
+      than the default, any `host_features` (or `BAGUETTE_HOST_FEATURES`),
+      or with `BAGUETTE_BUILD_HOST` set.
+    * `:precompiled` - downloaded from Baguette's GitHub release for this
+      OTP and platform, checked against `priv/host.sha256`. Without a
+      pinned checksum (a checkout of an unreleased version) it is built.
+  """
+  @spec host_source(keyword() | map(), map()) :: :precompiled | :build | {:local, Path.t()}
+  def host_source(options, env \\ System.get_env()) do
+    features =
+      (get_in(options, [:baguette, :host_features]) || []) ++
+        String.split(env["BAGUETTE_HOST_FEATURES"] || "", ",", trim: true)
+
+    cond do
+      path = env["BAGUETTE_HOST_BINARY"] -> {:local, path}
+      env["BAGUETTE_BUILD_HOST"] in ["1", "true"] -> :build
+      features != [] -> :build
+      get_in(options, [:baguette, :components]) not in [nil, ["gpui-kit"]] -> :build
+      true -> :precompiled
+    end
+  end
+
+  @doc "The precompiled host's asset in Baguette's GitHub release."
+  @spec host_asset(String.t(), String.t(), String.t()) :: String.t()
+  def host_asset(version, otp, target),
+    do: "baguette_host-v#{version}-OTP-#{otp}-#{target}.tar.gz"
+
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
   end
 
   defp package_desktop(release) do
+    host = desktop_host!(release)
+    window = Map.new(get_in(release.options, [:baguette, :window]) || [])
+
+    File.write!(
+      Path.join([release.version_path, "baguette.json"]),
+      :json.encode(%{window: window})
+    )
+
+    target = Path.join([release.path, "bin", "#{release.name}_app"])
+    # Replace rather than overwrite, so a running copy doesn't block the build.
+    File.rm(target)
+    File.cp!(host, target)
+    File.chmod!(target, 0o755)
+    Mix.shell().info([:green, "* installed ", :reset, Path.relative_to_cwd(target)])
+    release
+  end
+
+  # The host executable for this release, from wherever `host_source/2` says.
+  defp desktop_host!(release) do
+    source =
+      case host_source(release.options) do
+        :precompiled ->
+          if Map.has_key?(
+               host_sha256(),
+               host_asset(baguette_version(), otp_version(), desktop_target())
+             ),
+             do: :precompiled,
+             else: :build
+
+        other ->
+          other
+      end
+
+    case source do
+      :precompiled ->
+        Mix.shell().info([:green, "* downloading ", :reset, "the precompiled host"])
+        host = download_asset!(host_asset(baguette_version(), otp_version(), desktop_target()))
+        Path.join(host, "baguette_host")
+
+      {:local, path} ->
+        path
+
+      :build ->
+        build_host!(release)
+    end
+  end
+
+  defp build_host!(release) do
     liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
     features = cargo_features(release.options)
@@ -94,20 +176,46 @@ defmodule Baguette.Release do
         into: IO.stream()
       )
 
-    window = Map.new(get_in(release.options, [:baguette, :window]) || [])
+    Path.join([target_dir, "release", "baguette_host"])
+  end
 
-    File.write!(
-      Path.join([release.version_path, "baguette.json"]),
-      :json.encode(%{window: window})
-    )
+  # Checksums of the precompiled hosts, from the host workflow's summary.
+  defp host_sha256, do: sha256_file("priv/host.sha256")
 
-    target = Path.join([release.path, "bin", "#{release.name}_app"])
-    # Replace rather than overwrite, so a running copy doesn't block the build.
-    File.rm(target)
-    File.cp!(Path.join([target_dir, "release", "baguette_host"]), target)
-    File.chmod!(target, 0o755)
-    Mix.shell().info([:green, "* installed ", :reset, Path.relative_to_cwd(target)])
-    release
+  # Downloads, checks and unpacks a Baguette release asset into the user
+  # cache, once, and returns the directory.
+  defp download_asset!(asset) do
+    sha256 = Map.get(host_sha256(), asset) || Mix.raise("no pinned checksum for #{asset}")
+
+    dir =
+      Path.join([
+        :filename.basedir(:user_cache, "baguette"),
+        "assets",
+        Path.rootname(asset, ".tar.gz")
+      ])
+
+    unless File.dir?(dir) do
+      url = "#{@liberlang_releases}/v#{baguette_version()}/#{asset}"
+      body = http_get!(url)
+
+      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256,
+        do: Mix.raise("#{asset} does not match its pinned SHA-256")
+
+      partial = dir <> ".partial"
+      File.rm_rf!(partial)
+      File.mkdir_p!(partial)
+      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
+      File.rename!(partial, dir)
+    end
+
+    dir
+  end
+
+  defp baguette_version do
+    case Application.spec(:baguette, :vsn) do
+      nil -> Baguette.version()
+      vsn -> List.to_string(vsn)
+    end
   end
 
   @doc """
@@ -121,7 +229,8 @@ defmodule Baguette.Release do
   The step does nothing unless the release lists `bundles:` or
   `BAGUETTE_BUNDLES` is set (`BAGUETTE_BUNDLES=deb,appimage mix release`),
   which wins. Bundles land in `_build/<env>/bundle/<format>/`. It runs the
-  Tauri CLI through `npx`, so Node must be installed.
+  Tauri CLI's `bundle` through `npx` on the host `package/1` installed, so
+  Node must be installed but nothing is compiled again.
   """
   @spec bundle(Mix.Release.t()) :: Mix.Release.t()
   def bundle(%Mix.Release{} = release) do
@@ -139,7 +248,6 @@ defmodule Baguette.Release do
 
   defp bundle(release, options, bundles) do
     native = Path.join(baguette_root(), "native")
-    target_dir = target_dir(native, cargo_features(release.options))
     name = Atom.to_string(release.name)
     erts = "erts-#{release.erts_version}"
 
@@ -160,17 +268,22 @@ defmodule Baguette.Release do
     File.write!(config_path, :json.encode(config))
     Mix.shell().info([:green, "* bundling ", :reset, Enum.join(bundles, ", ")])
 
+    # The host `package/1` installed, however it came, is bundled as it is:
+    # it goes where the bundler looks, and nothing is compiled again.
+    target_dir = Path.join(Mix.Project.build_path(), "baguette_host")
+    File.mkdir_p!(Path.join(target_dir, "release"))
+    host = Path.join([release.path, "bin", "#{name}_app"])
+
+    for file <- ["baguette_host", "#{name}_app"],
+        do: File.cp!(host, Path.join([target_dir, "release", file]))
+
     {_, 0} =
       System.cmd(
         "npx",
-        ["--yes", "@tauri-apps/cli@2", "build", "--config", config_path, "--bundles"] ++
-          bundles ++ tauri_features(release.options),
+        ["--yes", "@tauri-apps/cli@2", "bundle", "--config", config_path, "--bundles"] ++
+          bundles,
         cd: Path.join(native, "baguette_host"),
-        env: [
-          {"BAGUETTE_LIBERLANG", desktop_liberlang!()},
-          {"CARGO_TARGET_DIR", target_dir},
-          {"NO_STRIP", "true"}
-        ],
+        env: [{"CARGO_TARGET_DIR", target_dir}, {"NO_STRIP", "true"}],
         into: IO.stream()
       )
 
@@ -420,8 +533,6 @@ defmodule Baguette.Release do
     end
   end
 
-  @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
-
   defp desktop_liberlang! do
     case System.get_env("BAGUETTE_LIBERLANG") do
       dir when dir not in [nil, ""] ->
@@ -486,9 +597,10 @@ defmodule Baguette.Release do
   end
 
   # `sha256sum` output for every published asset, from the liberlang workflow.
-  defp liberlang_sha256 do
-    for line <-
-          File.read!(Path.join(baguette_root(), "priv/liberlang.sha256")) |> String.split("\n"),
+  defp liberlang_sha256, do: sha256_file("priv/liberlang.sha256")
+
+  defp sha256_file(path) do
+    for line <- File.read!(Path.join(baguette_root(), path)) |> String.split("\n"),
         not String.starts_with?(line, "#"),
         [sha, file] <- [String.split(line, ~r/\s+\*?/, parts: 2, trim: true)],
         into: %{},
