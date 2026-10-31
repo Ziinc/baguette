@@ -55,6 +55,7 @@ jobs:
             libegl-dev libxrandr-dev clang
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo clippy -p baguette_host --all-targets --features playwright -- -D warnings
       - run: cargo test --workspace
 
   e2e-linux:
@@ -113,3 +114,43 @@ jobs:
           path: |
             examples/broadway/_build/prod/bundle/deb/*.deb
             examples/broadway/_build/prod/bundle/appimage/*.AppImage
+
+  e2e-playwright:
+    # The Tally example driven by Elixir's playwright_ex through the
+    # Playwright server the `playwright` host feature adds.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev libxdo-dev \
+            libssl-dev libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev mesa-vulkan-drivers \
+            libwayland-dev libx11-xcb-dev libfontconfig-dev libfreetype-dev libgbm-dev \
+            libegl-dev libxrandr-dev clang libncurses-dev fonts-dejavu xvfb
+      - uses: actions/cache@v4
+        id: liberlang
+        with:
+          path: |
+            ~/liberlang/liberlang.a
+            ~/liberlang/otp
+          key: liberlang-${{ runner.os }}-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang.sh') }}
+      - name: Build liberlang and OTP
+        if: steps.liberlang.outputs.cache-hit != 'true'
+        run: scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
+      - name: Elixir
+        run: |
+          curl -fsSL -o /tmp/elixir.zip \
+            "https://github.com/elixir-lang/elixir/releases/download/v$ELIXIR_VERSION/elixir-otp-29.zip"
+          mkdir -p ~/elixir && unzip -q /tmp/elixir.zip -d ~/elixir
+          echo "$HOME/liberlang/otp/bin" >> "$GITHUB_PATH"
+          echo "$HOME/elixir/bin" >> "$GITHUB_PATH"
+          echo "BAGUETTE_LIBERLANG=$HOME/liberlang" >> "$GITHUB_ENV"
+      - run: mix local.hex --force && mix local.rebar --force
+      - name: Tally release, driven by playwright_ex
+        run: scripts/e2e-playwright.sh
+        timeout-minutes: 30

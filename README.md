@@ -20,6 +20,7 @@ only for platform-specific NIFs.
 | --- | --- |
 | [`examples/broadway`](examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
 | [`examples/counter`](examples/counter) | The smallest app: a count held in a GenServer. |
+| [`examples/playwright`](examples/playwright) | A voting app driven end to end by Playwright from Elixir ([playwright_ex](https://hex.pm/packages/playwright_ex)). |
 
 Each one is a `mix release`:
 

@@ -7,6 +7,8 @@
 
 mod beam;
 mod bridge;
+#[cfg(feature = "playwright")]
+mod playwright;
 mod style;
 mod view;
 
@@ -55,7 +57,18 @@ pub fn run() {
                 .map_err(|e| e.to_string())
                 .and_then(|dir| beam::android::unpack(&dir))
                 .and_then(|root| beam::Release::locate_at(root));
+            #[cfg(not(feature = "playwright"))]
             tauri_plugin_gpui::init(app)?;
+            #[cfg(feature = "playwright")]
+            tauri_plugin_gpui::init_with(
+                app,
+                tauri_plugin_gpui::GpuiConfig::new()
+                    .assets(gpui_kit::assets::Assets)
+                    .on_launch(|cx| {
+                        gpui_kit::init(cx);
+                        playwright::start(cx);
+                    }),
+            )?;
             let (title, (width, height)) = match &release {
                 Ok(r) => (
                     r.window.title.clone().unwrap_or(r.name.clone()),
@@ -98,6 +111,13 @@ pub fn run() {
                 .detach();
                 root
             };
+            // Playwright reads painted text under gpui-kit's `Root`.
+            #[cfg(feature = "playwright")]
+            window.attach_gpui_view(Default::default(), move |window, cx| {
+                let root = build(cx);
+                cx.new(|cx| gpui_kit::base::Root::new(root, window, cx))
+            })?;
+            #[cfg(not(feature = "playwright"))]
             window.attach_gpui(build)?;
 
             if let Ok(release) = release {
