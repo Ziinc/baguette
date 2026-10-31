@@ -72,9 +72,11 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
         ]
         |> Enum.map(fn {k, v} -> {String.to_charlist(k), String.to_charlist(v)} end)
 
+      t0 = System.monotonic_time(:millisecond)
       os_port = Port.open({:spawn_executable, path}, [:binary, :stderr_to_stdout, env: env])
       {:os_pid, os_pid} = Port.info(os_port, :os_pid)
       endpoint = await_endpoint!(endpoint_file, os_pid, Keyword.get(opts, :timeout, 60_000))
+      IO.puts("DIAG endpoint after #{System.monotonic_time(:millisecond) - t0}ms")
       File.rm(endpoint_file)
       [_, port] = Regex.run(~r{:(\d+)/}, endpoint)
       %{os_pid: os_pid, os_port: os_port, endpoint: endpoint, port: String.to_integer(port)}
@@ -82,9 +84,12 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
 
     @doc "Stops an app started by `start_app!/2` and waits until it has exited."
     @spec stop_app(app()) :: :ok
-    def stop_app(%{os_pid: os_pid}) do
+    def stop_app(%{os_pid: os_pid} = app) do
+      t0 = System.monotonic_time(:millisecond)
       System.cmd("kill", ["#{os_pid}"], stderr_to_stdout: true)
       await_exit(os_pid, 50)
+      IO.puts("DIAG stop_app #{System.monotonic_time(:millisecond) - t0}ms")
+      _ = app
     end
 
     @doc """
@@ -101,7 +106,15 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
 
     @doc "Connects to the app and returns its main window as a page."
     @spec connect!(app()) :: page()
-    def connect!(%{endpoint: endpoint}) do
+    def connect!(%{endpoint: endpoint} = app) do
+      t0 = System.monotonic_time(:millisecond)
+      page = do_connect!(endpoint)
+      IO.puts("DIAG connect #{System.monotonic_time(:millisecond) - t0}ms")
+      IO.puts("DIAG app log so far:\n" <> log(app))
+      page
+    end
+
+    defp do_connect!(endpoint) do
       name = Module.concat(__MODULE__, "Conn#{System.unique_integer([:positive])}")
 
       {:ok, _} =
