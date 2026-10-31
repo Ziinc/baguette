@@ -1,2 +1,2 @@
-ExUnit.after_suite(&Baguette.Release.Slim.Check.loaded!/1)
+Baguette.Release.Slim.Check.start()
 ExUnit.start()

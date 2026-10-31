@@ -6,6 +6,12 @@ defmodule Baguette.Release.Slim.CheckTest do
   @moduletag timeout: 300_000
   @options [keep: [modules: [DemoDep.Safe]]]
 
+  # From a clean build, as in CI: compiling the fixture loads its modules.
+  setup do
+    File.rm_rf!(Path.join(Fixture.demo(), "_build/test"))
+    :ok
+  end
+
   test "passes when the suite loads only modules the release keeps" do
     assert {out, 0} = Fixture.mix(["test"], "test", @options)
     assert out =~ "1 passed"
