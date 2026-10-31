@@ -628,7 +628,6 @@ dependencies = [
  "baguette_abi",
  "flate2",
  "gpui-kit",
- "gpui-kit-assets",
  "gpui-playwright",
  "libc",
  "log",

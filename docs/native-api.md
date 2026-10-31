@@ -176,23 +176,40 @@ tests both read it, so the two sides can't drift apart.
 ## Leaving APIs out
 
 A release leaves out of its host what its source doesn't use, as Tailwind
-does with classes (`Baguette.Release.Scan`):
+does with classes (`Baguette.Release.Scan`). One precompiled host serves
+every app, so this happens when the release is packaged, at run time:
 
 - `:pick` (`phx-pick-*`, tauri-plugin-dialog) and `:open_url`
-  (tauri-plugin-opener) are the `api-pick` and `api-open-url` Cargo
-  features, on by default. A release turns off each one its source never
-  mentions, so neither crate is compiled.
-- Icons: the scan's kebab-case words go to `build.rs`
-  (`BAGUETTE_ICONS_FILE`). It keeps those that name an icon in gpui-kit's
-  catalog and serves them with gpui-kit-assets' `icon_assets!`, along with
-  gpui-kit's own component icons, in place of the whole 1,830-icon
-  `AllAssets`.
+  (tauri-plugin-opener): `releases/<vsn>/baguette.json` lists the APIs
+  kept, and the host registers only their plugins at startup.
+- Icons: the release copies the catalog's icons named by the scan's
+  kebab-case words into `releases/<vsn>/icons`. The host serves those,
+  then gpui-kit's own component icons, which are built in (`icons.rs`).
 - Release options: `exclude: [:pick, :open_url]`, `scan: false` or
   `scan: [paths: [...]]`, and `safelist: [apis: [...], icons: [...]]` for
   names the source only builds at run time.
 - Anything left out draws nothing and is logged once. Under `mix test`,
   `Baguette.Test` raises when a view renders a left-out icon or picker, and
   `Baguette.App.open_url/1` raises when `:open_url` is out.
+
+## Precompiled host and NIF
+
+`mix release` compiles no Rust for an app on the default host (gpui-kit's
+component set, no `host_features`):
+
+- `Baguette.Release.host_source/2` picks the host: `BAGUETTE_HOST_BINARY`, or
+  the precompiled `baguette_host-v<vsn>-OTP-<otp>-<target>.tar.gz` from
+  the version's GitHub release (`host.yml`), checked against
+  `priv/host.sha256`. Another component set, any host feature (such as
+  `playwright`), `BAGUETTE_BUILD_HOST=1`, or a version without pinned
+  checksums builds it with Cargo.
+- The icon catalog comes with it (`baguette_icons-v<vsn>.tar.gz`), or from
+  the Cargo checkout for a source build.
+- `bundle/1` runs `tauri bundle` on the installed host, so bundling
+  compiles nothing either. The host finds the release by its own path
+  (`/usr/lib/<name>/release`, `Contents/Resources/release`), since a
+  precompiled binary doesn't know its app's name.
+- The NIF is precompiled with rustler_precompiled (`nif.yml`).
 
 ## Next, in order
 

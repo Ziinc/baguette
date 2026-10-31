@@ -16,33 +16,73 @@ defmodule Baguette.ReleaseTest do
     assert Release.host_features(%{baguette: [host_features: ["a"]]}) == ["a", "playwright", "b"]
   end
 
-  @keep_all %{excluded: [], icons: :all}
+  test "cargo_features/1 turns the components option into set features" do
+    assert Release.cargo_features(%{}) == []
 
-  test "cargo_features/2 turns the components option into set features" do
-    assert Release.cargo_features(%{}, @keep_all) == []
+    assert Release.cargo_features(%{baguette: [components: ["gpui-kit"]]}) ==
+             ["--no-default-features", "--features", "components-gpui-kit"]
 
-    assert Release.cargo_features(%{baguette: [components: ["gpui-kit"]]}, @keep_all) ==
-             ~w(--no-default-features --features components-gpui-kit
-                --features api-open-url --features api-pick)
-
-    assert Release.cargo_features(%{baguette: [components: [], host_features: ["x"]]}, @keep_all) ==
-             ~w(--no-default-features --features api-open-url --features api-pick --features x)
+    assert Release.cargo_features(%{baguette: [components: [], host_features: ["x"]]}) ==
+             ["--no-default-features", "--features", "x"]
   end
 
-  test "cargo_features/2 leaves out the APIs the plan excludes" do
+  test "host_config/2 tells the host its window and the APIs the release keeps" do
     plan = %{excluded: [:pick], icons: :all}
 
-    assert Release.cargo_features(%{}, plan) ==
-             ~w(--no-default-features --features components-gpui-kit --features api-open-url)
+    assert Release.host_config([baguette: [window: [title: "Jobs"]]], plan) ==
+             %{window: %{title: "Jobs"}, apis: ["open_url"]}
   end
 
-  test "icons_file/2 lists the icons to keep for the host's build, or none to keep all" do
-    dir = Path.join(System.tmp_dir!(), "baguette-icons-#{System.unique_integer([:positive])}")
-    File.mkdir_p!(dir)
-    on_exit(fn -> File.rm_rf!(dir) end)
+  describe "host_source/2" do
+    test "a default host is downloaded, precompiled" do
+      assert Release.host_source([], %{}) == :precompiled
+      assert Release.host_source([baguette: [components: ["gpui-kit"]]], %{}) == :precompiled
+    end
 
-    assert Release.icons_file(%{excluded: [], icons: :all}, dir) == nil
-    path = Release.icons_file(%{excluded: [], icons: {:only, MapSet.new(~w(trash plus))}}, dir)
-    assert File.read!(path) == "plus\ntrash\n"
+    test "another component set, a host feature or BAGUETTE_BUILD_HOST builds it" do
+      assert Release.host_source([baguette: [components: []]], %{}) == :build
+      assert Release.host_source([baguette: [host_features: ["playwright"]]], %{}) == :build
+      assert Release.host_source([], %{"BAGUETTE_HOST_FEATURES" => "playwright"}) == :build
+      assert Release.host_source([], %{"BAGUETTE_BUILD_HOST" => "1"}) == :build
+    end
+
+    test "BAGUETTE_HOST_BINARY uses a host built elsewhere" do
+      assert Release.host_source([baguette: [host_features: ["playwright"]]], %{
+               "BAGUETTE_HOST_BINARY" => "/tmp/host"
+             }) == {:local, "/tmp/host"}
+    end
+  end
+
+  test "host_asset/3 names the precompiled host as the host workflow publishes it" do
+    assert Release.host_asset("0.2.0", "29.1.2", "x86_64-linux") ==
+             "baguette_host-v0.2.0-OTP-29.1.2-x86_64-linux.tar.gz"
+  end
+
+  test "install_icons/3 copies the catalog's icons the plan keeps" do
+    root = Path.join(System.tmp_dir!(), "baguette-icons-#{System.unique_integer([:positive])}")
+    catalog = Path.join(root, "catalog")
+    File.mkdir_p!(catalog)
+    on_exit(fn -> File.rm_rf!(root) end)
+    for name <- ~w(plus trash bell), do: File.write!(Path.join(catalog, "#{name}.svg"), name)
+
+    into = Path.join(root, "icons")
+    plan = %{excluded: [], icons: {:only, MapSet.new(~w(plus trash defmodule))}}
+    assert Release.install_icons(plan, catalog, into) == 2
+    assert File.ls!(into) |> Enum.sort() == ["plus.svg", "trash.svg"]
+
+    assert Release.install_icons(%{plan | icons: :all}, catalog, into) == 3
+    assert File.read!(Path.join(into, "bell.svg")) == "bell"
+  end
+
+  test "the host workflow builds every desktop target, named as host_asset/3 names them" do
+    workflow = File.read!(".github/workflows/host.yml")
+
+    for target <- ~w(x86_64-linux aarch64-linux aarch64-macos x86_64-macos) do
+      assert workflow =~ "target: #{target}"
+    end
+
+    assert workflow =~ ~s(asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz")
+    assert Release.host_asset("V", "X", "T") == "baguette_host-vV-OTP-X-T.tar.gz"
+    assert workflow =~ "OTP_TAG: OTP-"
   end
 end

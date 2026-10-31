@@ -8,17 +8,11 @@
 mod beam;
 mod bridge;
 pub mod components;
-#[cfg(test)]
-mod icon_select;
+mod icons;
 mod keymap;
 mod list;
 mod paint;
 mod patch;
-/// The icons this build embeds (`build.rs`, `icon_select.rs`).
-mod icons {
-    include!(concat!(env!("OUT_DIR"), "/icons.rs"));
-}
-#[cfg(feature = "api-pick")]
 mod pick;
 mod platform;
 #[cfg(feature = "playwright")]
@@ -57,16 +51,9 @@ pub fn run() {
     beam::android::log_stdio();
     let (host, inbox) = bridge::install();
 
-    let builder = tauri::Builder::default();
-    #[cfg(feature = "api-pick")]
-    let builder = builder.plugin(tauri_plugin_dialog::init());
-    #[cfg(feature = "api-open-url")]
-    let builder = builder.plugin(tauri_plugin_opener::init());
-    builder
+    tauri::Builder::default()
         .on_menu_event(|_, event| platform::on_menu_event(event))
         .setup(move |app| {
-            #[cfg(feature = "api-pick")]
-            pick::install(app.handle().clone());
             use tauri::Manager;
             #[cfg(not(target_os = "android"))]
             let release = beam::Release::locate(app.path().resource_dir().ok());
@@ -79,6 +66,24 @@ pub fn run() {
                 .map_err(|e| e.to_string())
                 .and_then(|dir| beam::android::unpack(&dir))
                 .and_then(|root| beam::Release::locate_at(root));
+            // The APIs and icons the release keeps (`Baguette.Release.Scan`).
+            if let Ok(release) = &release {
+                if release.apis.pick {
+                    app.handle().plugin(tauri_plugin_dialog::init())?;
+                    pick::install(app.handle().clone());
+                }
+                if release.apis.open_url {
+                    app.handle().plugin(tauri_plugin_opener::init())?;
+                    platform::keep_open_url();
+                }
+                icons::install(
+                    release
+                        .root
+                        .join("releases")
+                        .join(&release.version)
+                        .join("icons"),
+                );
+            }
             let handle = app.handle().clone();
             let bridge::Inbox { renders, calls } = inbox;
             tauri_plugin_gpui::init_with(

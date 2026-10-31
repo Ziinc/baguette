@@ -688,17 +688,16 @@ fn picks(attrs: &BTreeMap<String, String>) -> bool {
     attrs.contains_key("phx-pick-file") || attrs.contains_key("phx-pick-save")
 }
 
-#[cfg(feature = "api-pick")]
+/// Opens the element's dialog. A release without `:pick`
+/// (`Baguette.Release.Scan`) has no dialogs, and says so.
 fn open_picker(window: u32, attrs: &BTreeMap<String, String>) {
-    if let Some(pick) = crate::pick::Pick::from_attrs(window, attrs) {
-        pick.open();
+    match crate::pick::Pick::from_attrs(window, attrs) {
+        Some(pick) if crate::pick::installed() => pick.open(),
+        Some(_) => {
+            crate::log_line("baguette: phx-pick-* needs the :pick API, which this release excludes")
+        }
+        None => {}
     }
-}
-
-/// A release without `:pick` (`Baguette.Release.Scan`) has no dialogs.
-#[cfg(not(feature = "api-pick"))]
-fn open_picker(_window: u32, _attrs: &BTreeMap<String, String>) {
-    crate::log_line("baguette: phx-pick-* needs the :pick API, which this release excludes");
 }
 
 /// The asset path of the icon called `name`, if this build embeds it.
@@ -1451,8 +1450,10 @@ mod tests {
 
     #[test]
     fn icons_resolve_by_kebab_case_name() {
-        assert_eq!(icon_path("undo-2").as_deref(), Some("icons/undo-2.svg"));
-        assert!(icon_path("zoom-in").is_some());
+        // gpui-kit's component icons are built in; the rest ship with the
+        // release (`icons.rs`).
+        assert_eq!(icon_path("check").as_deref(), Some("icons/check.svg"));
+        assert!(icon_path("zoom-in").is_none());
         assert!(icon_path("no-such-icon").is_none());
         assert!(icon_path("../Cargo").is_none());
         assert!(icon_path("").is_none());
@@ -1462,7 +1463,7 @@ mod tests {
     fn icons_are_embedded_in_every_build() {
         // A debug build that reads them from the build machine's disk has
         // none on a phone.
-        let icon = gpui_kit::assets::AllAssets::get("icons/save.svg").expect("save icon");
+        let icon = gpui_kit::assets::Assets::get("icons/check.svg").expect("check icon");
         assert!(matches!(icon.data, std::borrow::Cow::Borrowed(_)));
     }
 }
