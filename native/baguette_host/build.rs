@@ -46,6 +46,9 @@ fn main() {
                     }
                 }
                 Ok("macos") | Ok("ios") => {
+                    // As on Linux: ld64 dead-strips the `enif_*` functions
+                    // nothing in the host calls unless every global is kept.
+                    println!("cargo::rustc-link-arg-bins=-Wl,-export_dynamic");
                     for lib in ["ncurses", "c++"] {
                         println!("cargo::rustc-link-lib={lib}");
                     }
