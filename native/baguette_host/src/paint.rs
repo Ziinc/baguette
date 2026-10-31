@@ -95,11 +95,13 @@ fn shape(tag: &str, attrs: &BTreeMap<String, String>, theme: &Theme) -> Option<S
         ]),
         "polyline" | "polygon" => {
             let mut points = numbers(attrs.get("points").map(String::as_str).unwrap_or(""))
-                .chunks_exact(2)
+                .as_chunks::<2>()
+                .0
+                .iter()
                 .enumerate()
-                .map(|(i, p)| match i {
-                    0 => Segment::Move(p[0], p[1]),
-                    _ => Segment::Line(p[0], p[1]),
+                .map(|(i, &[x, y])| match i {
+                    0 => Segment::Move(x, y),
+                    _ => Segment::Line(x, y),
                 })
                 .collect::<Vec<_>>();
             if tag == "polygon" {
