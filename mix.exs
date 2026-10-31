@@ -49,6 +49,8 @@ defmodule Baguette.MixProject do
       # checksums, or with BAGUETTE_BUILD_NIF.
       {:rustler_precompiled, "~> 0.8"},
       {:rustler, "~> 0.38", runtime: false},
+      # The SlimBeam release step, for apps to list (see the README).
+      {:slim_beam, path: "slim_beam", runtime: false},
       {:phoenix_live_view, "~> 1.2"},
       {:floki, "~> 0.38"},
       # Baguette.Playwright: end-to-end tests through gpui-playwright.
