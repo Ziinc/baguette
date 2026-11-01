@@ -83,14 +83,29 @@ pub fn route(msg: RenderMsg, cx: &mut gpui::App) {
         Some(root) => deliver(&root, &msg.json, cx),
         None => {
             windows.roots.remove(&msg.window);
-            // Only the latest frame matters; rows and patches follow it.
-            let queue = windows.queued.entry(msg.window).or_default();
-            if is_frame(&msg.json) {
-                queue.clear();
+            if !queue(windows.queued.entry(msg.window).or_default(), msg.json) {
+                crate::bridge::emit(&serde_json::json!({"type": "resync", "window": msg.window}));
             }
-            queue.push(msg.json);
         }
     }
+}
+
+/// The most a closed window keeps: a frame and the patches and rows after it.
+const MAX_QUEUED: usize = 64;
+
+/// Keeps `json` for a window that isn't open. Only the latest frame matters,
+/// with what follows it; a patch or rows without a frame to follow, or one
+/// more than the queue holds, drops the queue and returns false: Elixir is
+/// then asked for its whole frame instead.
+fn queue(queue: &mut Vec<Vec<u8>>, json: Vec<u8>) -> bool {
+    if is_frame(&json) {
+        queue.clear();
+    } else if queue.is_empty() || queue.len() >= MAX_QUEUED {
+        queue.clear();
+        return false;
+    }
+    queue.push(json);
+    true
 }
 
 fn is_frame(json: &[u8]) -> bool {
@@ -119,6 +134,20 @@ mod tests {
     fn labels_windows() {
         assert_eq!(label(0), "main");
         assert_eq!(label(3), "window-3");
+    }
+
+    #[test]
+    fn queues_a_frame_and_what_follows_it() {
+        let mut q = Vec::new();
+        assert!(!queue(&mut q, br#"{"patch": []}"#.to_vec()));
+        assert!(q.is_empty());
+        assert!(queue(&mut q, br#"{"root": null}"#.to_vec()));
+        for _ in 1..MAX_QUEUED {
+            assert!(queue(&mut q, br#"{"patch": []}"#.to_vec()));
+        }
+        assert_eq!(q.len(), MAX_QUEUED);
+        assert!(!queue(&mut q, br#"{"patch": []}"#.to_vec()));
+        assert!(q.is_empty());
     }
 
     #[test]
