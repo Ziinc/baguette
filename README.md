@@ -11,17 +11,17 @@ platform-specific NIFs.
 > booted in CI. Android builds its host from source; Windows and iOS are not
 > supported yet.
 
-![A Broadway pipeline visualised live](docs/firehose.gif)
+![A Broadway pipeline visualised live](https://github.com/ziinc/baguette/raw/main/docs/firehose.gif)
 
 ## Examples
 
 | | |
 | --- | --- |
-| [`examples/broadway`](examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
-| [`examples/counter`](examples/counter) | The smallest app: a count held in a GenServer. |
-| [`examples/board`](examples/board) | A card dragged around a board (`phx-drag`, `absolute`, `<line>`). |
-| [`examples/todo`](examples/todo) | A to-do list: a form with a native text input, checkboxes, list roles. |
-| [`examples/gallery`](examples/gallery) | The native API: gpui-kit components, canvas painting, animations, long lists. |
+| [`examples/broadway`](https://github.com/ziinc/baguette/tree/main/examples/broadway) | A Broadway pipeline (producer, four processors, two batchers) drawn live: rates, load, batches, acks, failures and back-pressure. |
+| [`examples/counter`](https://github.com/ziinc/baguette/tree/main/examples/counter) | The smallest app: a count held in a GenServer. |
+| [`examples/board`](https://github.com/ziinc/baguette/tree/main/examples/board) | A card dragged around a board (`phx-drag`, `absolute`, `<line>`). |
+| [`examples/todo`](https://github.com/ziinc/baguette/tree/main/examples/todo) | A to-do list: a form with a native text input, checkboxes, list roles. |
+| [`examples/gallery`](https://github.com/ziinc/baguette/tree/main/examples/gallery) | The native API: gpui-kit components, canvas painting, animations, long lists. |
 
 Each one is a `mix release`:
 
@@ -240,7 +240,9 @@ mix test --only playwright
 
 Pushing a `v*` tag runs CI and publishes the Firehose builds as a GitHub
 release: `.deb` and AppImage, `.dmg` for Apple silicon and Intel, and a
-signed Android APK and AAB. Signing comes from repository secrets:
+signed Android APK and AAB. Running the Release workflow by hand is a dry
+run: it builds all of that, the NIFs and the hosts as the run's artifacts,
+and publishes nothing. Signing comes from repository secrets:
 
 - Android: `ANDROID_KEYSTORE` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`,
   `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them the build is signed
