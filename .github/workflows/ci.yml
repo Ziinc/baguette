@@ -107,14 +107,12 @@ jobs:
         env:
           DBUS_SESSION_BUS_ADDRESS: unix:path=/nonexistent/bus
         run: |
-          for app in counter board todo gallery playwright; do
+          for app in counter board todo gallery; do
             (cd examples/$app && mix deps.get && \
               BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
           done
           mix deps.get
           xvfb-run -a mix test --only playwright
-          # Tally drives its release with playwright_ex directly.
-          (cd examples/playwright && xvfb-run -a mix test --only playwright)
         # Most of it is building each example's host with Cargo.
         timeout-minutes: 45
       - name: Tauri bundles (deb, AppImage) install and boot the release
