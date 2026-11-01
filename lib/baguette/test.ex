@@ -405,6 +405,9 @@ defmodule Baguette.Test do
   # Waits until the owner of `window` has handled everything sent to it, and
   # the host has stored what it rendered in response.
   defp sync(window) do
+    # Events reach the owner through the host process: let it pass them on.
+    :sys.get_state(Host)
+
     case Host.owner(window) do
       nil -> :ok
       pid -> :sys.get_state(pid)
