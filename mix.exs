@@ -19,7 +19,24 @@ defmodule Baguette.MixProject do
       deps: deps(),
       description: "Native GPUI applications written in Elixir.",
       source_url: @source_url,
-      package: package()
+      package: package(),
+      docs: docs()
+    ]
+  end
+
+  # `mix docs`, which `mix hex.publish` runs. The README links to the examples
+  # and its GIF on GitHub, so the links work on hexdocs too.
+  defp docs do
+    [
+      main: "readme",
+      source_ref: "v#{@version}",
+      extras: ["README.md", "docs/native-api.md": [title: "Native API"]],
+      groups_for_modules: [
+        Views: [Baguette.View, Baguette.Components, Baguette.Kit, Baguette.Theme],
+        Platform: [Baguette.App, Baguette.Clipboard, Baguette.Menu, Baguette.Window],
+        Testing: [Baguette.Test, Baguette.Playwright],
+        Releases: [Baguette.Release, ~r/^Baguette\.Release\./]
+      ]
     ]
   end
 
@@ -58,7 +75,8 @@ defmodule Baguette.MixProject do
       {:floki, "~> 0.38"},
       # Baguette.Playwright: end-to-end tests through gpui-playwright.
       {:playwright_ex, "~> 0.15", optional: true},
-      {:websockex, "~> 0.4", optional: true}
+      {:websockex, "~> 0.4", optional: true},
+      {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end
 end
