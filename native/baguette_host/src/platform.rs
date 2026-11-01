@@ -92,7 +92,7 @@ fn run(request: &Request, app: &tauri::AppHandle, cx: &mut gpui::App) -> Result<
             cx.write_to_clipboard(ClipboardItem::new_string(text("text")?));
             Ok(Value::Null)
         }
-        "app.appearance" => Ok(json!(appearance(cx.window_appearance()))),
+        "app.appearance" => Ok(json!(appearance(crate::portal::appearance(cx)))),
         "app.open_url" => {
             use tauri_plugin_opener::OpenerExt;
             app.opener()

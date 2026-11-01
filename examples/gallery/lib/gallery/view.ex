@@ -116,6 +116,10 @@ defmodule Gallery.View do
     {:reply, rows, assigns}
   end
 
+  # The desktop switched between light and dark.
+  def handle_info({:appearance, appearance}, assigns),
+    do: {:noreply, %{assigns | appearance: appearance}}
+
   def handle_action(:open_palette, assigns), do: {:noreply, %{assigns | palette: true}}
   def handle_action(:close_palette, assigns), do: {:noreply, %{assigns | palette: false}}
 

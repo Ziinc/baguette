@@ -17,6 +17,7 @@ mod pick;
 mod platform;
 #[cfg(feature = "playwright")]
 mod playwright;
+mod portal;
 mod style;
 mod style_gen;
 mod view;
@@ -83,6 +84,7 @@ pub fn run() {
                     .on_launch(move |cx| {
                         // gpui-kit's components: text inputs and checkboxes.
                         gpui_kit::init(cx);
+                        portal::watch(cx);
                         #[cfg(feature = "playwright")]
                         playwright::start(cx);
                         cx.spawn(async move |cx| {

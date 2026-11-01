@@ -38,10 +38,19 @@ tauri-plugin-dialog = "2"
 # Baguette.App.open_url/1: tauri-gpui's platform leaves URLs to it.
 tauri-plugin-opener = "2"
 serde_json = "1"
-tauri = { version = "2.12", features = ["unstable"] }
+# Tauri's defaults without `dbus`, as tauri-plugin-gpui has them: TAO's portal
+# colour-scheme lookup blocks the main thread 5 s per call when the portal
+# never answers. `portal.rs` reads it off the main thread instead.
+tauri = { version = "2.12", default-features = false, features = ["unstable", "wry", "compression", "common-controls-v6", "dynamic-acl", "x11"] }
 # tauri-gpui's main is on gpui-pre =0.3.9, the snapshot gpui-kit 0.7.3 uses.
 # Switch to a release once one is published.
 tauri-plugin-gpui = { git = "https://github.com/ziinc/tauri-gpui", features = ["mobile"] }
+
+# The portal's colour scheme, read off the main thread (`portal.rs`). Both
+# are already in the tree, through rfd and async-io.
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.13", default-features = false, features = ["async-io", "settings"] }
+futures-lite = "2"
 
 [target.'cfg(target_os = "android")'.dependencies]
 android_logger = "0.15"

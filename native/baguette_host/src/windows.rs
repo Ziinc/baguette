@@ -51,13 +51,8 @@ pub fn open(
             }
         })
         .detach();
-        let appearance = window.observe_window_appearance(move |window, _| {
-            crate::bridge::emit(&serde_json::json!({
-                "type": "appearance",
-                "window": id,
-                "appearance": crate::platform::appearance(window.appearance()),
-            }));
-        });
+        // GTK's theme changed; the portal's colour scheme, once known, wins.
+        let appearance = window.observe_window_appearance(move |_, cx| emit_appearance(id, cx));
         root.update(cx, |root, _| root.keep(appearance));
         let queued = {
             let windows = cx.default_global::<Windows>();
@@ -70,6 +65,28 @@ pub fn open(
         cx.new(|cx| gpui_kit::base::Root::new(root, window, cx))
     })?;
     Ok(())
+}
+
+/// Tells window `id`'s view the app's appearance.
+fn emit_appearance(id: u32, cx: &gpui::App) {
+    crate::bridge::emit(&serde_json::json!({
+        "type": "appearance",
+        "window": id,
+        "appearance": crate::platform::appearance(crate::portal::appearance(cx)),
+    }));
+}
+
+/// Tells every open window's view that the app's appearance changed.
+pub fn appearance_changed(cx: &mut gpui::App) {
+    let ids: Vec<u32> = cx
+        .default_global::<Windows>()
+        .roots
+        .keys()
+        .copied()
+        .collect();
+    for id in ids {
+        emit_appearance(id, cx);
+    }
 }
 
 /// Shows a render on its window, or keeps it until that window opens.
