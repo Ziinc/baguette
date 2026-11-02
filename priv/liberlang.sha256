@@ -1,1 +1,7 @@
 # sha256sum of each liberlang-OTP-<version>-<target>.tar.gz release asset.
+944b46aaaa1c6cb47e243b17fb4378fddaef5c5e4e564da1f4a5b62df770ce6a  liberlang-OTP-29.1.2-aarch64-linux-android.tar.gz
+c83d97106044d87435f6cc7e90dee17b66a9a74859170a1dede3f1810e5dc4de  liberlang-OTP-29.1.2-aarch64-linux.tar.gz
+2c2deb36bbfccdce5fce056c6a217442514ebcc04319099c1765fcfe2df67ab0  liberlang-OTP-29.1.2-aarch64-macos.tar.gz
+a64e882cfaa4c6808bb52ae65e4cb9c2d846aae3d96c3c4a789210b7ba00d22c  liberlang-OTP-29.1.2-x86_64-linux-android.tar.gz
+5f34a8f3d2806d186bb273654f87589f9ea030e8d6cec1c5e6b0d28c8ade72d6  liberlang-OTP-29.1.2-x86_64-linux.tar.gz
+fe65d4bae07a1060ce17ae2229366f1e6c60874cd5539a174be100473ee4e225  liberlang-OTP-29.1.2-x86_64-macos.tar.gz

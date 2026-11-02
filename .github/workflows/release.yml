@@ -5,10 +5,15 @@ name: Release
 # Apple silicon and Intel) and Android (signed APK and AAB). The release also
 # carries Baguette's precompiled NIFs and hosts, which apps download (nif.yml,
 # host.yml).
+#
+# Running it by hand (workflow_dispatch) is a dry run: everything is built and
+# kept as the run's artifacts, with the host checksums in its summary, but
+# nothing is published.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 jobs:
   ci:
@@ -27,6 +32,7 @@ jobs:
 
   publish:
     needs: [ci, android, nif, host]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write

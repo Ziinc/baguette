@@ -134,10 +134,10 @@ jobs:
 
   macos:
     # The Firehose disk image, mounted and booted as a user gets it. Signed
-    # and notarized when the repository has Tauri's APPLE_* secrets. Runs on
-    # pushes only: merges to main, and release tags (release.yml), whose
-    # assets include the disk images. Pull requests skip it.
-    if: github.event_name == 'push'
+    # and notarized when the repository has Tauri's APPLE_* secrets. Pull
+    # requests skip it; merges to main, release tags and release.yml's dry
+    # run (whose assets include the disk images) run it.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:
