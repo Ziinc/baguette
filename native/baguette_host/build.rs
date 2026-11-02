@@ -2,7 +2,13 @@ use std::env;
 use std::path::PathBuf;
 
 fn main() {
-    tauri_build::build();
+    // GPUI embeds its own Windows manifest (DPI awareness, common controls
+    // v6); a second one from Tauri fails the link (CVT1100).
+    tauri_build::try_build(
+        tauri_build::Attributes::new()
+            .windows_attributes(tauri_build::WindowsAttributes::new_without_app_manifest()),
+    )
+    .expect("tauri-build");
 
     // `BAGUETTE_LIBERLANG` names a directory holding the BEAM: `liberlang.a`
     // (libbeam plus its internal libraries, from `scripts/build-liberlang.sh`)
