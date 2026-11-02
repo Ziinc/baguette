@@ -69,6 +69,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      # npm's download cache: Tauri's CLI, from `npm install` (Android) and
+      # `npx @tauri-apps/cli` (desktop bundles).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - name: System dependencies
         run: |
           sudo apt-get update
@@ -154,6 +161,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+      # npm's download cache: Tauri's CLI, from `npm install` (Android) and
+      # `npx @tauri-apps/cli` (desktop bundles).
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
       - uses: actions/cache@v4
         id: liberlang
         with:
