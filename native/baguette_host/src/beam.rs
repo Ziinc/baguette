@@ -16,7 +16,8 @@ pub struct Release {
     pub name: String,
     pub version: String,
     pub window: WindowConfig,
-    /// Where `erl_child_setup` is, which the BEAM starts at boot.
+    /// Where `erl_child_setup` is, which the BEAM starts at boot (on Windows,
+    /// `beam.smp.dll`, the BEAM itself).
     pub bindir: PathBuf,
 }
 
@@ -84,6 +85,7 @@ impl Release {
     pub fn locate_at(root: PathBuf) -> Result<Self, String> {
         let root = root
             .canonicalize()
+            .map(plain_path)
             .map_err(|e| format!("{}: {e}", root.display()))?;
         let start_erl = std::fs::read_to_string(root.join("releases/start_erl.data"))
             .map_err(|e| format!("{}/releases/start_erl.data: {e}", root.display()))?;
@@ -137,7 +139,9 @@ impl Release {
 pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
     let releases = format!("releases/{}", release.version);
     let bindir = release.bindir.display().to_string();
-    let home = std::env::var("HOME").unwrap_or_else(|_| release.path("tmp"));
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_else(|_| release.path("tmp"));
     let cookie = std::fs::read_to_string(release.root.join("releases/COOKIE")).unwrap_or_default();
 
     // A bundled release is read-only (`/usr/lib/<app>`), so scratch files go
@@ -237,7 +241,7 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
 
 #[cfg(baguette_beam)]
 fn run(args: Vec<String>) {
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(any(target_os = "android", windows)))]
     unsafe extern "C" {
         fn erl_start(argc: std::ffi::c_int, argv: *mut *mut std::ffi::c_char);
     }
@@ -248,6 +252,8 @@ fn run(args: Vec<String>) {
         #[link_name = "liberlang_start"]
         fn erl_start(argc: std::ffi::c_int, argv: *mut *mut std::ffi::c_char);
     }
+    #[cfg(windows)]
+    use windows::erl_start;
     let args: Vec<CString> = args.into_iter().map(|a| CString::new(a).unwrap()).collect();
     // `erl_start` keeps pointers into argv for the life of the VM.
     let argv: &'static mut [*mut std::ffi::c_char] = Vec::leak(
@@ -258,6 +264,74 @@ fn run(args: Vec<String>) {
     );
     // SAFETY: argv is NUL-terminated and lives forever.
     unsafe { erl_start((argv.len() - 1) as std::ffi::c_int, argv.as_mut_ptr()) };
+}
+
+/// `canonicalize` on Windows gives verbatim paths (`\\?\C:\...`), which
+/// the BEAM's file name handling doesn't take.
+fn plain_path(path: PathBuf) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(plain) = path.to_str().and_then(|p| p.strip_prefix(r"\\?\"))
+        && !plain.starts_with(r"UNC\")
+    {
+        return PathBuf::from(plain);
+    }
+    path
+}
+
+/// Windows: the host loads the release's own BEAM, `beam.smp.dll`, and starts
+/// it as `erl.exe` does (`erts/etc/win32/win_erlexec.c`). NIFs get `enif_*`
+/// from the callback table the BEAM hands them when it loads them, so nothing
+/// is linked into the host.
+#[cfg(windows)]
+mod windows {
+    use std::ffi::{c_char, c_int, c_void};
+    use std::os::windows::ffi::OsStrExt;
+
+    type Module = *mut c_void;
+
+    // Look for the DLL's own dependencies in its directory.
+    const LOAD_WITH_ALTERED_SEARCH_PATH: u32 = 0x8;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn LoadLibraryExW(name: *const u16, file: *mut c_void, flags: u32) -> Module;
+        fn GetProcAddress(module: Module, name: *const c_char) -> *mut c_void;
+        fn GetLastError() -> u32;
+    }
+
+    /// Loads `$BINDIR/beam.smp.dll` (`start` sets `BINDIR`) and runs the BEAM.
+    pub unsafe fn erl_start(argc: c_int, argv: *mut *mut c_char) {
+        let Some(bindir) = std::env::var_os("BINDIR") else {
+            return crate::log_line("baguette: BINDIR is not set");
+        };
+        let dll = std::path::Path::new(&bindir).join("beam.smp.dll");
+        let wide: Vec<u16> = dll.as_os_str().encode_wide().chain([0]).collect();
+        // SAFETY: a NUL-terminated wide path; the module stays loaded for
+        // the life of the process.
+        unsafe {
+            let module = LoadLibraryExW(
+                wide.as_ptr(),
+                std::ptr::null_mut(),
+                LOAD_WITH_ALTERED_SEARCH_PATH,
+            );
+            if module.is_null() {
+                let error = GetLastError();
+                return crate::log_line(&format!(
+                    "baguette: loading {}: error {error}",
+                    dll.display()
+                ));
+            }
+            let init = GetProcAddress(module, c"sys_primitive_init".as_ptr());
+            let start = GetProcAddress(module, c"erl_start".as_ptr());
+            if init.is_null() || start.is_null() {
+                return crate::log_line(&format!("baguette: {} has no erl_start", dll.display()));
+            }
+            let init: unsafe extern "C" fn(Module) = std::mem::transmute(init);
+            let start: unsafe extern "C" fn(c_int, *mut *mut c_char) = std::mem::transmute(start);
+            init(module);
+            start(argc, argv);
+        }
+    }
 }
 
 #[cfg(not(baguette_beam))]

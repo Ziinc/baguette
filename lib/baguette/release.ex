@@ -46,8 +46,11 @@ defmodule Baguette.Release do
   # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
   @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
 
-  # The ERTS programs the host's BEAM starts; `trim_erts!/1` keeps only these.
+  # The ERTS files the host needs; `trim_erts!/1` keeps only these. On
+  # Windows the host loads the release's own BEAM (`beam.smp.dll`), which
+  # spawns ports without `erl_child_setup`.
   @erts_programs ["erl_child_setup", "inet_gethost"]
+  @erts_programs_windows ["beam.smp.dll", "inet_gethost.exe"]
 
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
@@ -122,14 +125,18 @@ defmodule Baguette.Release do
   links the BEAM, so of ERTS it starts only `erl_child_setup` (at boot) and
   `inet_gethost` (for DNS). `beam.smp`, `erlexec`, the other programs and
   the `include`, `lib`, `doc` and `man` directories go, which also means
-  the release's own `bin/<name>` can no longer start it.
+  the release's own `bin/<name>` can no longer start it. On Windows the host
+  loads the BEAM from `beam.smp.dll` instead of linking it, so that and
+  `inet_gethost.exe` stay (`os` is `:os.type/0`).
   """
-  @spec trim_erts!(Path.t()) :: :ok
-  def trim_erts!(root) do
+  @spec trim_erts!(Path.t(), tuple()) :: :ok
+  def trim_erts!(root, os \\ :os.type()) do
+    keep = if match?({:win32, _}, os), do: @erts_programs_windows, else: @erts_programs
+
     for erts <- Path.wildcard(Path.join(root, "erts-*")) do
       bin = Path.join(erts, "bin")
 
-      for file <- File.ls!(bin), file not in @erts_programs, do: File.rm_rf!(Path.join(bin, file))
+      for file <- File.ls!(bin), file not in keep, do: File.rm_rf!(Path.join(bin, file))
 
       for dir <- File.ls!(erts), dir != "bin", do: File.rm_rf!(Path.join(erts, dir))
     end
@@ -154,7 +161,7 @@ defmodule Baguette.Release do
 
     trim_erts!(release.path)
 
-    target = Path.join([release.path, "bin", "#{release.name}_app"])
+    target = Path.join([release.path, "bin", "#{release.name}_app#{exe()}"])
     # Replace rather than overwrite, so a running copy doesn't block the build.
     File.rm(target)
     File.cp!(host, target)
@@ -183,7 +190,7 @@ defmodule Baguette.Release do
       :precompiled ->
         Mix.shell().info([:green, "* downloading ", :reset, "the precompiled host"])
         host = download_asset!(host_asset(baguette_version(), otp_version(), desktop_target()))
-        Path.join(host, "baguette_host")
+        Path.join(host, "baguette_host#{exe()}")
 
       {:local, path} ->
         path
@@ -194,7 +201,6 @@ defmodule Baguette.Release do
   end
 
   defp build_host!(release) do
-    liberlang = desktop_liberlang!()
     native = Path.join(baguette_root(), "native")
     features = cargo_features(release.options)
     target_dir = target_dir(native, features)
@@ -206,11 +212,11 @@ defmodule Baguette.Release do
         "cargo",
         ["build", "--release", "-p", "baguette_host", "--target-dir", target_dir] ++ features,
         cd: native,
-        env: [{"BAGUETTE_LIBERLANG", liberlang}],
+        env: liberlang_env(),
         into: IO.stream()
       )
 
-    Path.join([target_dir, "release", "baguette_host"])
+    Path.join([target_dir, "release", "baguette_host#{exe()}"])
   end
 
   # Checksums of the precompiled hosts, from the host workflow's summary.
@@ -306,10 +312,10 @@ defmodule Baguette.Release do
     # it goes where the bundler looks, and nothing is compiled again.
     target_dir = Path.join(Mix.Project.build_path(), "baguette_host")
     File.mkdir_p!(Path.join(target_dir, "release"))
-    host = Path.join([release.path, "bin", "#{name}_app"])
+    host = Path.join([release.path, "bin", "#{name}_app#{exe()}"])
 
     for file <- ["baguette_host", "#{name}_app"],
-        do: File.cp!(host, Path.join([target_dir, "release", file]))
+        do: File.cp!(host, Path.join([target_dir, "release", file <> exe()]))
 
     {_, 0} =
       System.cmd(
@@ -567,6 +573,16 @@ defmodule Baguette.Release do
     end
   end
 
+  # The host's BEAM: Windows loads the release's own `beam.smp.dll` at
+  # startup, so there is nothing to link.
+  defp liberlang_env do
+    if windows?(), do: [], else: [{"BAGUETTE_LIBERLANG", desktop_liberlang!()}]
+  end
+
+  defp windows?, do: match?({:win32, _}, :os.type())
+
+  defp exe, do: if(windows?(), do: ".exe", else: "")
+
   defp desktop_liberlang! do
     case System.get_env("BAGUETTE_LIBERLANG") do
       dir when dir not in [nil, ""] ->
@@ -592,6 +608,7 @@ defmodule Baguette.Release do
     case :os.type() do
       {:unix, :linux} -> "#{cpu}-linux"
       {:unix, :darwin} -> "#{cpu}-macos"
+      {:win32, _} -> "#{cpu}-windows"
       os -> Mix.raise("no prebuilt BEAM for #{inspect(os)}; set BAGUETTE_LIBERLANG")
     end
   end

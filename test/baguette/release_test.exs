@@ -84,9 +84,25 @@ defmodule Baguette.ReleaseTest do
       File.write!(Path.join(erts, file), "x")
     end
 
-    Release.trim_erts!(root)
+    Release.trim_erts!(root, {:unix, :linux})
 
     assert Enum.sort(File.ls!(Path.join(erts, "bin"))) == ["erl_child_setup", "inet_gethost"]
+    assert File.ls!(erts) == ["bin"]
+  end
+
+  @tag :tmp_dir
+  test "trim_erts!/2 on Windows keeps the BEAM's DLL, which the host loads", %{tmp_dir: root} do
+    erts = Path.join(root, "erts-17.1.1")
+
+    for file <- ~w(bin/beam.smp.dll bin/erlexec.dll bin/erl.exe bin/epmd.exe
+                   bin/inet_gethost.exe include/erl_nif.h) do
+      File.mkdir_p!(Path.dirname(Path.join(erts, file)))
+      File.write!(Path.join(erts, file), "x")
+    end
+
+    Release.trim_erts!(root, {:win32, :nt})
+
+    assert Enum.sort(File.ls!(Path.join(erts, "bin"))) == ["beam.smp.dll", "inet_gethost.exe"]
     assert File.ls!(erts) == ["bin"]
   end
 

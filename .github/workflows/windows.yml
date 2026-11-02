@@ -1,0 +1,45 @@
+name: Windows
+
+# The counter as a real `mix release` on Windows: the host loads the
+# release's own `beam.smp.dll`, so the BEAM is the one setup-beam installed.
+# CI runs it on pushes, not pull requests (Windows runners are slow).
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches: [claude/windows]
+
+env:
+  LANG: C.UTF-8
+
+jobs:
+  e2e:
+    runs-on: windows-2025
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: native
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29.1.2"
+          elixir-version: "1.20.4"
+      - run: mix local.hex --force && mix local.rebar --force
+      - name: OTP's ERTS
+        run: ls -la "$(erl -noshell -eval 'io:put_chars(code:root_dir()), halt().')"/erts-*/bin
+      - name: Release tests
+        run: mix deps.get && mix test test/baguette/release_test.exs
+      - name: Counter release draws its first frame
+        run: scripts/e2e-windows.sh e2e-windows
+        timeout-minutes: 30
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: e2e-windows
+          path: e2e-windows

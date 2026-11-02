@@ -14,6 +14,12 @@ fn main() {
     println!("cargo::rustc-check-cfg=cfg(baguette_embedded_release)");
     embed_release();
     record_versions();
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
+        // The host loads the release's own `beam.smp.dll` at startup
+        // (`beam::windows`), as `erl.exe` does: there is nothing to link.
+        println!("cargo::rustc-cfg=baguette_beam");
+        return;
+    }
     let Some(dir) = env::var_os("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
