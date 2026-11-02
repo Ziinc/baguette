@@ -35,6 +35,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Caches Gradle's distribution and dependencies (Kotlin, the Android
+      # Gradle plugin), so a run doesn't fetch them from Maven Central. Only
+      # main writes the cache; pull requests and tags read it.
+      - uses: gradle/actions/setup-gradle@v4
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -113,6 +117,10 @@ jobs:
         with:
           distribution: temurin
           java-version: "17"
+      # Caches Gradle's distribution and dependencies (Kotlin, the Android
+      # Gradle plugin), so a run doesn't fetch them from Maven Central. Only
+      # main writes the cache; pull requests and tags read it.
+      - uses: gradle/actions/setup-gradle@v4
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
