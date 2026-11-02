@@ -271,6 +271,13 @@ defmodule Baguette.Release do
   which wins. Bundles land in `_build/<env>/bundle/<format>/`. It runs the
   Tauri CLI's `bundle` through `npx` on the host `package/1` installed, so
   Node must be installed but nothing is compiled again.
+
+  Baguette signs nothing itself. The Tauri CLI inherits the build's
+  environment, so set the variables Tauri reads for signing when running the
+  final `mix release`: `APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY` and the
+  other `APPLE_*` variables on macOS, or on Windows `TAURI_CONFIG` with a
+  `bundle.windows` signing configuration (`certificateThumbprint` or
+  `signCommand`), which Tauri merges into the bundle's configuration.
   """
   @spec bundle(Mix.Release.t()) :: Mix.Release.t()
   def bundle(%Mix.Release{} = release) do
@@ -320,8 +327,8 @@ defmodule Baguette.Release do
     {_, 0} =
       System.cmd(
         "npx",
-        ["--yes", "@tauri-apps/cli@2", "bundle", "--config", config_path, "--bundles"] ++
-          bundles,
+        ["--yes", "@tauri-apps/cli@2", "bundle", "--config", config_path] ++
+          user_tauri_config() ++ ["--bundles" | bundles],
         cd: Path.join(native, "baguette_host"),
         env: [{"CARGO_TARGET_DIR", target_dir}, {"NO_STRIP", "true"}],
         into: IO.stream()
@@ -570,6 +577,15 @@ defmodule Baguette.Release do
     case System.cmd(command, args, cd: dir, env: env, into: IO.stream(), stderr_to_stdout: true) do
       {_, 0} -> :ok
       {_, status} -> Mix.raise("#{command} exited with #{status}")
+    end
+  end
+
+  # The app's own Tauri configuration (signing, say) from `TAURI_CONFIG`, a
+  # JSON string or file, merged over Baguette's.
+  defp user_tauri_config do
+    case System.get_env("TAURI_CONFIG") do
+      config when config in [nil, ""] -> []
+      config -> ["--config", config]
     end
   end
 
