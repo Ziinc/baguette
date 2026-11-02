@@ -21,6 +21,8 @@ jobs:
       run:
         shell: bash
     steps:
+      # Check out files as committed (LF), as tests read some of them.
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
