@@ -37,6 +37,14 @@ jobs:
         run: ls -la "$(erl -noshell -eval 'io:put_chars(code:root_dir()), halt().')"/erts-*/bin
       - name: Release tests
         run: mix deps.get && mix test test/baguette/release_test.exs
+      - name: Mesa (the runner has no GPU)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download -R pal1000/mesa-dist-win -p '*-release-msvc.7z' -O "$RUNNER_TEMP/mesa.7z"
+          7z x -y -o"$RUNNER_TEMP/mesa" "$RUNNER_TEMP/mesa.7z" >/dev/null
+          ls "$RUNNER_TEMP/mesa/x64"
+          echo "MESA_DLLS=$RUNNER_TEMP/mesa/x64" >> "$GITHUB_ENV"
       - name: Counter release draws its first frame
         run: scripts/e2e-windows.sh e2e-windows
         timeout-minutes: 30
