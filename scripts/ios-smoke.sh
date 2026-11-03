@@ -91,7 +91,10 @@ if [ "${COUNTER_TAPS:-1}" = 1 ]; then
   sleep 1
   xcrun simctl io "$device" screenshot "$out/tapped.png" >/dev/null
 fi
-xcrun simctl spawn "$device" launchctl list | grep -q "$bundle" || fail "the app exited"
+# Read in full first: `grep -q` stops early, and under pipefail the SIGPIPE
+# it leaves `launchctl` with reads as the app having exited.
+services=$(xcrun simctl spawn "$device" launchctl list)
+grep -qF "$bundle" <<<"$services" || fail "the app exited"
 sync_log
 grep -E 'baguette|fork' "$log" | tail -20
 echo "PASS: the app boots its release and draws Elixir's first frame on iOS"
