@@ -272,8 +272,9 @@ iOS runs only code linked into the app, and starts no other programs:
 - `System.cmd/3`, `:os.cmd/1` and ports to external programs raise
   `badarg`. The BEAM is built with OTP's iOS settings (no JIT, static NIFs)
   and needs no patches; see `scripts/build-liberlang-ios.sh`.
-- No distribution (`epmd`), and hostname lookups need Erlang's own resolver
-  (`:inet_db.set_lookup([:file, :dns])`) until Baguette sets it up.
+- No distribution (`epmd`). Hostname lookups use the hosts file and
+  Erlang's own DNS resolver (`[:file, :dns]`) with the system's DNS servers,
+  which Baguette sets up at startup.
 - Output from the BEAM goes to the device log
   (`xcrun simctl spawn booted log stream --predicate 'process == "my_app"'`).
 

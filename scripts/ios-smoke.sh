@@ -61,6 +61,8 @@ wait_for() {
 wait_for 'baguette: release at' 120
 # The BEAM boots with fork() refused, as a phone's sandbox refuses it.
 wait_for 'baguette: fork\(\) refused' 60
+# The system's DNS servers, which Baguette.DNS gives the BEAM's resolver.
+wait_for 'baguette: nameservers [0-9a-fA-F:.]+' 60
 wait_for 'baguette: first frame from Elixir' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null

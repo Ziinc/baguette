@@ -4,6 +4,8 @@ defmodule Baguette.Application do
 
   @impl true
   def start(_type, _args) do
+    :ok = Baguette.DNS.configure()
+
     children = [
       {Registry, keys: :unique, name: Baguette.Registry},
       Baguette.Host

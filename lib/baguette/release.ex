@@ -626,12 +626,13 @@ defmodule Baguette.Release do
   # NIFs call (Rustler finds them with `dlsym` in the app's exports):
   # `-export_dynamic` keeps the linker from dead-stripping them, and
   # stripping an archived (release) build keeps global symbols, which would
-  # otherwise empty its exports. The BEAM also needs libc++.
+  # otherwise empty its exports. The BEAM also needs libc++, and reading the
+  # system's DNS servers libresolv.
   defp patch_xcodegen!(path) do
     at = "        ENABLE_BITCODE: false\n"
 
     flags =
-      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++\n" <>
+      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++ -lresolv\n" <>
         "        STRIP_STYLE: non-global\n"
 
     yml = File.read!(path)
