@@ -1,0 +1,26 @@
+[package]
+name = "baguette_ios"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# The iOS app's Rust half: the Tauri project `Baguette.Release.ios/1` builds,
+# whose Xcode project links this static library. It is the host
+# (`baguette_host`) and nothing else; it exists because a library crate's
+# types can't vary by target, and the host's `cdylib` (for Android) can't link
+# for iOS.
+[lib]
+name = "baguette_ios_lib"
+crate-type = ["staticlib"]
+test = false
+doctest = false
+
+[dependencies]
+baguette_host = { path = "../baguette_host", default-features = false }
+tauri = { version = "2.12", default-features = false }
+
+[features]
+default = ["components-gpui-kit"]
+components-gpui-kit = ["baguette_host/components-gpui-kit"]
+playwright = ["baguette_host/playwright"]

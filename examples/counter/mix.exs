@@ -8,7 +8,14 @@ defmodule Counter.MixProject do
       elixir: "~> 1.18",
       deps: [{:baguette, path: "../.."}],
       releases: [
-        counter: [steps: [:assemble, &Baguette.Release.package/1, &Baguette.Release.bundle/1]]
+        counter: [
+          steps: [
+            :assemble,
+            &Baguette.Release.package/1,
+            &Baguette.Release.bundle/1,
+            &Baguette.Release.ios/1
+          ]
+        ]
       ]
     ]
   end

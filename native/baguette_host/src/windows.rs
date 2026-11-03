@@ -34,10 +34,13 @@ pub fn open(
     (width, height): (f64, f64),
     frame: Frame,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let window = tauri::WindowBuilder::new(app, label(id))
-        .title(title)
-        .inner_size(width, height)
-        .build()?;
+    let window = tauri::WindowBuilder::new(app, label(id)).title(title);
+    // A phone's window is its screen; iOS would take the size literally.
+    #[cfg(desktop)]
+    let window = window.inner_size(width, height);
+    #[cfg(mobile)]
+    let _ = (width, height);
+    let window = window.build()?;
     // gpui-kit's Root hosts its components (focus, theme, popovers) and,
     // for Playwright, observes what each frame paints.
     window.attach_gpui_view(Default::default(), move |window, cx| {

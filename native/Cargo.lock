@@ -627,6 +627,8 @@ dependencies = [
  "ashpd",
  "async-channel",
  "baguette_abi",
+ "baguette_nif",
+ "cc",
  "flate2",
  "futures-lite",
  "gpui-kit",
@@ -642,6 +644,14 @@ dependencies = [
  "tauri-plugin-dialog",
  "tauri-plugin-gpui",
  "tauri-plugin-opener",
+]
+
+[[package]]
+name = "baguette_ios"
+version = "0.1.0"
+dependencies = [
+ "baguette_host",
+ "tauri",
 ]
 
 [[package]]
