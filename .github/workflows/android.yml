@@ -38,6 +38,8 @@ jobs:
         with:
           key: android
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -127,6 +129,8 @@ jobs:
         with:
           key: android-arm64
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

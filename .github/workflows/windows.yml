@@ -26,6 +26,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "29.1.2"

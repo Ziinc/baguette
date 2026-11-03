@@ -41,6 +41,8 @@ jobs:
         with:
           key: ios-${{ matrix.kind }}
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: actions/cache@v4
         with:
           path: ~/.npm
