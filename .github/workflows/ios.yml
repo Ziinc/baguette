@@ -5,11 +5,11 @@ name: iOS
 # unsigned .ipa (apps sign their own; see the README) and checked, not run.
 # macOS minutes are dear, so this runs on pushes to main and on demand, not on
 # pull requests.
-# TODO: drop the claude/ios branch once the iOS work is merged.
+# TODO: drop the claude/ios* branches once the stacked iOS PRs are merged.
 
 on:
   push:
-    branches: [main, claude/ios]
+    branches: [main, "claude/ios*"]
   workflow_dispatch:
 
 # A newer push supersedes a run still going on the same branch.
