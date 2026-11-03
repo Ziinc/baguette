@@ -9,12 +9,11 @@ fn main() {
     // for desktop, or `<target>/liberlang.so` for Android
     // (`scripts/build-liberlang-android.sh`). Without it the host still
     // builds, and shows a notice in place of the app.
-    println!("cargo::rerun-if-env-changed=BAGUETTE_LIBERLANG");
     println!("cargo::rustc-check-cfg=cfg(baguette_beam)");
     println!("cargo::rustc-check-cfg=cfg(baguette_embedded_release)");
     embed_release();
     record_versions();
-    let Some(dir) = env::var_os("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
+    let Some(dir) = baguette_env("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
     let target = env::var("TARGET").unwrap();
@@ -61,6 +60,16 @@ fn main() {
             }
         }
     }
+}
+
+/// A Baguette variable, or the same with a `TAURI_` prefix: Tauri's iOS build
+/// (Cargo run from Xcode) passes on only `TAURI_*`, `CARGO_*` and a few
+/// others, so `Baguette.Release.ios/1` sets those.
+fn baguette_env(name: &str) -> Option<std::ffi::OsString> {
+    let tauri = format!("TAURI_{name}");
+    println!("cargo::rerun-if-env-changed={name}");
+    println!("cargo::rerun-if-env-changed={tauri}");
+    env::var_os(name).or_else(|| env::var_os(tauri))
 }
 
 /// iOS loads no code but the app's, so every NIF is linked into it and listed
@@ -135,8 +144,7 @@ pid_t fork(void) {{
 /// On mobile the release ships inside the library: `BAGUETTE_RELEASE_ARCHIVE`
 /// names a `.tar.gz` of it, which `beam::android` unpacks on first launch.
 fn embed_release() {
-    println!("cargo::rerun-if-env-changed=BAGUETTE_RELEASE_ARCHIVE");
-    let Some(archive) = env::var_os("BAGUETTE_RELEASE_ARCHIVE").map(PathBuf::from) else {
+    let Some(archive) = baguette_env("BAGUETTE_RELEASE_ARCHIVE").map(PathBuf::from) else {
         println!("cargo::rustc-env=BAGUETTE_RELEASE_HASH=none");
         return;
     };

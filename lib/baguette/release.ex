@@ -555,9 +555,11 @@ defmodule Baguette.Release do
       })
     )
 
+    # Xcode runs Cargo through the Tauri CLI, which passes on only `TAURI_*`
+    # and `CARGO_*` variables; the host's build.rs reads both spellings.
     env = [
-      {"BAGUETTE_LIBERLANG", liberlang},
-      {"BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"TAURI_BAGUETTE_LIBERLANG", liberlang},
+      {"TAURI_BAGUETTE_RELEASE_ARCHIVE", archive},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "ios"])}
     ]
 
