@@ -110,4 +110,35 @@ defmodule Baguette.ReleaseTest do
   test "trim_erts!/1 leaves a release without ERTS alone", %{tmp_dir: root} do
     assert Release.trim_erts!(root) == :ok
   end
+
+  describe "ios_build_options/2" do
+    @sim %{simulator: true}
+    @device %{simulator: false}
+
+    test "the simulator gets an unsigned debug build, whatever signing is set up" do
+      env = %{"APPLE_DEVELOPMENT_TEAM" => "T", "BAGUETTE_IOS_EXPORT_METHOD" => "debugging"}
+      assert Release.ios_build_options(@sim, env) == ["--debug", "--no-sign"]
+    end
+
+    test "a device gets an optimised build, unsigned without a development team" do
+      assert Release.ios_build_options(@device, %{}) == ["--no-sign"]
+    end
+
+    test "a development team turns signing on, with the export method chosen" do
+      env = %{
+        "APPLE_DEVELOPMENT_TEAM" => "T",
+        "BAGUETTE_IOS_EXPORT_METHOD" => "app-store-connect"
+      }
+
+      assert Release.ios_build_options(@device, env) == ["--export-method", "app-store-connect"]
+    end
+
+    test "BAGUETTE_IOS_PROFILE chooses debug or release" do
+      assert Release.ios_build_options(@sim, %{"BAGUETTE_IOS_PROFILE" => "release"}) ==
+               ["--no-sign"]
+
+      assert Release.ios_build_options(@device, %{"BAGUETTE_IOS_PROFILE" => "debug"}) ==
+               ["--debug", "--no-sign"]
+    end
+  end
 end

@@ -227,7 +227,8 @@ export BAGUETTE_LIBERLANG=~/liberlang-ios
 
 (`device` and `aarch64-apple-ios` for a device build.) The simulator build is
 an unsigned debug app for an Apple silicon Mac's simulator:
-`xcrun simctl install booted _build/prod/ios/my_app.app`.
+`xcrun simctl install booted _build/prod/ios/my_app.app`. The device build is
+optimised; `BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either.
 
 ### Signing
 

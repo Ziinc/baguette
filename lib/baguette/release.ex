@@ -523,7 +523,8 @@ defmodule Baguette.Release do
   was built with. Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
 
   The simulator build is an unsigned debug build, `_build/<env>/ios/<name>.app`.
-  The device build is an optimised `_build/<env>/ios/<name>.ipa`, unsigned
+  The device build is an optimised `_build/<env>/ios/<name>.ipa`
+  (`BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either), unsigned
   unless signing is configured: the Tauri CLI signs it when
   `APPLE_DEVELOPMENT_TEAM` is set, with the identities in the keychain or
   `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`
@@ -604,22 +605,32 @@ defmodule Baguette.Release do
     release
   end
 
-  # The simulator gets a quick unsigned debug build. A device gets an
-  # optimised build, signed by the Tauri CLI when the environment names a
-  # development team, else unsigned.
-  defp ios_build_options(%{simulator: true}), do: ["--debug", "--no-sign"]
+  @doc false
+  # The Tauri CLI's options for `target`. The simulator gets a quick unsigned
+  # debug build, a device an optimised one (`BAGUETTE_IOS_PROFILE` chooses
+  # otherwise), signed by the Tauri CLI when the environment names a
+  # development team.
+  @spec ios_build_options(map(), map()) :: [String.t()]
+  def ios_build_options(target, env \\ System.get_env()) do
+    debug =
+      case env["BAGUETTE_IOS_PROFILE"] do
+        "debug" -> ["--debug"]
+        "release" -> []
+        _ -> if target.simulator, do: ["--debug"], else: []
+      end
 
-  defp ios_build_options(_device) do
     sign =
-      if System.get_env("APPLE_DEVELOPMENT_TEAM") in [nil, ""], do: ["--no-sign"], else: []
+      if target.simulator or env["APPLE_DEVELOPMENT_TEAM"] in [nil, ""],
+        do: ["--no-sign"],
+        else: []
 
     export =
-      case System.get_env("BAGUETTE_IOS_EXPORT_METHOD") do
-        method when method in [nil, ""] -> []
+      case env["BAGUETTE_IOS_EXPORT_METHOD"] do
+        method when method in [nil, ""] or target.simulator -> []
         method -> ["--export-method", method]
       end
 
-    sign ++ export
+    debug ++ sign ++ export
   end
 
   # The app's Rust library carries the BEAM, whose `enif_*` functions only
