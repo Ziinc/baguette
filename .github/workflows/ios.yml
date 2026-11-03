@@ -12,6 +12,11 @@ on:
     branches: [main, claude/ios]
   workflow_dispatch:
 
+# A newer push supersedes a run still going on the same branch.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   OTP_TAG: OTP-29.1.2
   ELIXIR_VERSION: 1.20.4
