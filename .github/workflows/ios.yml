@@ -88,9 +88,19 @@ jobs:
           mix local.hex --force && mix local.rebar --force
           mix deps.get
           mix release --overwrite
+      # idb-companion has no bottle and compiles only with Xcode 26, which the
+      # image carries beside its default; the app is built and run with the
+      # default.
       - name: idb, to tap the simulator
         if: matrix.kind == 'sim'
-        run: brew install facebook/fb/idb-companion && pipx install fb-idb
+        run: |
+          default=$(xcode-select -p)
+          xcode26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xcode26" ] || { echo "no Xcode 26 on this image"; ls -d /Applications/Xcode*; exit 1; }
+          sudo xcode-select -s "$xcode26"
+          brew install facebook/fb/idb-companion
+          sudo xcode-select -s "$default"
+          pipx install fb-idb
       - name: Run on the simulator
         if: matrix.kind == 'sim'
         timeout-minutes: 20
