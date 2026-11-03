@@ -611,17 +611,15 @@ defmodule Baguette.Release do
 
   # The app's Rust library carries the BEAM, whose `enif_*` functions only
   # NIFs call (Rustler finds them with `dlsym` in the app's exports):
-  # `-export_dynamic` keeps the linker from dead-stripping them, and the
-  # installed product is not stripped, which would empty the exports of an
-  # archived (release) build. The BEAM also needs libc++.
+  # `-export_dynamic` keeps the linker from dead-stripping them, and
+  # stripping an archived (release) build keeps global symbols, which would
+  # otherwise empty its exports. The BEAM also needs libc++.
   defp patch_xcodegen!(path) do
     at = "        ENABLE_BITCODE: false\n"
 
     flags =
       "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++\n" <>
-        "        STRIP_STYLE: non-global\n" <>
-        "        STRIP_INSTALLED_PRODUCT: NO\n" <>
-        "        COPY_PHASE_STRIP: NO\n"
+        "        STRIP_STYLE: non-global\n"
 
     yml = File.read!(path)
 

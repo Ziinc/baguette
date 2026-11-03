@@ -24,7 +24,8 @@ otool -l "$exe" | grep -A3 LC_BUILD_VERSION | grep -Eq 'platform (2|IOS)$' ||
   { echo "FAIL: not built for iOS devices"; failures=$((failures + 1)); }
 
 exported=$(nm -gU "$exe")
-for symbol in _start_app _erl_start _erts_static_nif_tab _baguette_nif_nif_init _enif_alloc _enif_make_atom _fork; do
+# (`erl_start` is hidden in ERTS and called directly, so it is not exported.)
+for symbol in _start_app _erts_static_nif_tab _baguette_nif_nif_init _enif_alloc _enif_make_atom _fork; do
   if grep -q " $symbol\$" <<<"$exported"; then
     echo "ok: $symbol"
   else
