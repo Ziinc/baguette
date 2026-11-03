@@ -214,8 +214,9 @@ BAGUETTE_IOS=device MIX_ENV=prod mix release  # _build/prod/ios/my_app.ipa
 
 It needs a Mac with Xcode, `xcodegen` (`brew install xcodegen`), Node, and
 Rust's target for the build (`rustup target add aarch64-apple-ios-sim
-aarch64-apple-ios`). Until prebuilt iOS BEAMs are published, build one with
-the OTP you build the release with, and point `BAGUETTE_LIBERLANG` at it:
+aarch64-apple-ios`). `mix release` downloads the prebuilt iOS BEAM for your
+OTP version, as on desktop. To use your own, build it with the OTP you build
+the release with and point `BAGUETTE_LIBERLANG` at it:
 
 ```sh
 scripts/build-liberlang-ios.sh OTP-29.1.2 sim ~/liberlang-ios-build

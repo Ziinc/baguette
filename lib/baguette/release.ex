@@ -517,10 +517,10 @@ defmodule Baguette.Release do
   programs fail with `badarg` (see `scripts/build-liberlang-ios.sh`).
 
   Baguette's own NIF is linked in; a release with other NIFs is refused for
-  now. `BAGUETTE_LIBERLANG` must hold `<target>/liberlang.a` and
-  `<target>/driver_tab.c` from `scripts/build-liberlang-ios.sh`, built with
-  the OTP this release was built with, until prebuilt ones are published.
-  Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
+  now. The BEAM is downloaded like the desktop one; a `BAGUETTE_LIBERLANG`
+  of your own must hold `<target>/liberlang.a` and `<target>/driver_tab.c`
+  from `scripts/build-liberlang-ios.sh`, built with the OTP this release
+  was built with. Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
 
   The simulator build is an unsigned debug build, `_build/<env>/ios/<name>.app`.
   The device build is an optimised `_build/<env>/ios/<name>.ipa`, unsigned
