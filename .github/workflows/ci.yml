@@ -57,7 +57,9 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p baguette_host --all-targets --features playwright -- -D warnings
-      - run: cargo test --workspace
+      # baguette_ios is the host bundled as a static library for Xcode: no
+      # tests, and building it here only spends the runner's disk.
+      - run: cargo test --workspace --exclude baguette_ios
 
   e2e-linux:
     # The counter as a real `mix release`: the host links liberlang built from
