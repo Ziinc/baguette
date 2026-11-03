@@ -26,6 +26,7 @@ defmodule Baguette.E2E.BoardPlaywrightTest do
     assert_in_delta x, 140, 1
   end
 
+  @tag skip: Baguette.Test.E2E.screenshots()
   test "screenshot/1 returns the window as a PNG", %{page: page} do
     assert :ok = Playwright.await_text(page, "At 40,40")
     png = Playwright.screenshot(page)
