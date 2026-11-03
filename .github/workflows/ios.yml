@@ -94,7 +94,9 @@ jobs:
         run: scripts/ios-smoke.sh examples/counter/_build/prod/ios/counter.app dev.baguette.counter ios-smoke
       - name: Check the device build
         if: matrix.kind == 'device'
-        run: scripts/ios-check-ipa.sh examples/counter/_build/prod/ios/counter.ipa
+        run: |
+          grep -nE 'OTHER_LDFLAGS|STRIP|DEAD_CODE' native/baguette_ios/gen/apple/project.yml || true
+          scripts/ios-check-ipa.sh examples/counter/_build/prod/ios/counter.ipa
       - uses: actions/upload-artifact@v4
         if: always()
         with:
