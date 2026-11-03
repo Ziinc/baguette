@@ -79,6 +79,7 @@ defmodule Baguette.E2E.TodoPlaywrightTest do
     assert :ok = Playwright.await_text(page, "0 of 0 left")
   end
 
+  @tag skip: Baguette.Test.E2E.screenshots()
   test "gpui-kit components take their colours from the app's theme", %{page: page} do
     Playwright.fill(page, "Title", "Buy milk")
     Playwright.press(page, "Title", "Enter")
@@ -134,6 +135,7 @@ defmodule Baguette.E2E.TodoPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Last key: ctrl+shift+z")
   end
 
+  @tag skip: Baguette.Test.E2E.screenshots()
   test "buttons draw their icons, every name known; title shows a tooltip", %{
     page: page,
     app: app

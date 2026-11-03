@@ -69,6 +69,7 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert :ok = Playwright.await_text(page, "Details open")
   end
 
+  @tag skip: Baguette.Test.E2E.screenshots()
   test "a canvas paints its shapes; pulse animates", %{page: page} do
     assert :ok = Playwright.await_text(page, "Palette closed")
     %{"x" => x, "y" => y} = Playwright.bounding_box(page, label: "Chart")
@@ -95,6 +96,7 @@ defmodule Baguette.E2E.GalleryPlaywrightTest do
     assert half == track / 2
   end
 
+  @tag skip: Baguette.Test.E2E.screenshots()
   test "animations tween any style, and are keyed by id", %{page: page} do
     assert :ok = Playwright.await_text(page, "Entry 1")
     Process.sleep(2_500)
