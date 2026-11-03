@@ -64,7 +64,10 @@ wait_for 'baguette: fork\(\) refused' 60
 wait_for 'baguette: first frame from Elixir' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null
-xcrun simctl spawn "$device" launchctl list | grep -q "$bundle" || fail "the app exited"
+# Read in full first: `grep -q` stops early, and under pipefail the SIGPIPE
+# it leaves `launchctl` with reads as the app having exited.
+services=$(xcrun simctl spawn "$device" launchctl list)
+grep -qF "$bundle" <<<"$services" || fail "the app exited"
 sync_log
 grep -E 'baguette|fork' "$log" | tail -20
 echo "PASS: the app boots its release and draws Elixir's first frame on iOS"
