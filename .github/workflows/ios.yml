@@ -1,0 +1,85 @@
+name: iOS
+
+# The counter example as an iOS simulator app: the embedded BEAM boots and
+# Elixir's first frame is drawn. macOS minutes are dear, so this runs on
+# pushes to main and on demand, not on pull requests.
+# TODO: drop the claude/ios branch once the iOS work is merged.
+
+on:
+  push:
+    branches: [main, claude/ios]
+  workflow_dispatch:
+
+env:
+  OTP_TAG: OTP-29.1.2
+  ELIXIR_VERSION: 1.20.4
+  LANG: C.UTF-8
+
+jobs:
+  simulator:
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-ios-sim
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios
+          workspaces: native
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_ios/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      # The build machine's OTP, which builds the release and cross-builds
+      # OTP for iOS. Same cache as ci.yml's macOS job.
+      - uses: actions/cache@v4
+        id: liberlang
+        with:
+          path: |
+            ~/liberlang/liberlang.a
+            ~/liberlang/otp
+          key: liberlang-macos-aarch64-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang.sh') }}
+      - name: Build OTP
+        if: steps.liberlang.outputs.cache-hit != 'true'
+        run: brew install openssl@3 && scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
+      - name: Elixir
+        run: |
+          curl -fsSL -o /tmp/elixir.zip \
+            "https://github.com/elixir-lang/elixir/releases/download/v$ELIXIR_VERSION/elixir-otp-29.zip"
+          mkdir -p ~/elixir && unzip -q /tmp/elixir.zip -d ~/elixir
+          echo "$HOME/liberlang/otp/bin" >> "$GITHUB_PATH"
+          echo "$HOME/elixir/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        id: liberlang-ios
+        with:
+          path: ~/liberlang-ios/aarch64-apple-ios-sim
+          key: liberlang-ios-sim-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang-ios.sh') }}
+      - name: Cross-build OTP for the iOS simulator
+        if: steps.liberlang-ios.outputs.cache-hit != 'true'
+        run: |
+          scripts/build-liberlang-ios.sh "$OTP_TAG" sim ~/liberlang-ios-build
+          mkdir -p ~/liberlang-ios/aarch64-apple-ios-sim
+          cp ~/liberlang-ios-build/{liberlang.a,driver_tab.c} ~/liberlang-ios/aarch64-apple-ios-sim/
+      - run: command -v xcodegen >/dev/null || brew install xcodegen
+      - name: Build the counter app
+        working-directory: examples/counter
+        env:
+          BAGUETTE_IOS: sim
+          MIX_ENV: prod
+        run: |
+          export BAGUETTE_LIBERLANG=$HOME/liberlang-ios
+          mix local.hex --force && mix local.rebar --force
+          mix deps.get
+          mix release --overwrite
+      - name: Run on the simulator
+        timeout-minutes: 20
+        run: scripts/ios-smoke.sh examples/counter/_build/prod/ios/counter.app dev.baguette.counter ios-smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-smoke
+          path: ios-smoke
+          if-no-files-found: ignore

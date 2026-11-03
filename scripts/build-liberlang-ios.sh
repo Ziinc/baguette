@@ -5,7 +5,9 @@
 #   scripts/build-liberlang-ios.sh OTP-29.1.2 sim    /path/to/out
 #   scripts/build-liberlang-ios.sh OTP-29.1.2 device /path/to/out
 #
-# Out: <out>/liberlang.a.
+# Out: <out>/liberlang.a, and <out>/driver_tab.c: OTP's table of the drivers
+# and NIFs linked into the emulator. The archive leaves that table out; the
+# host compiles its own from this one, with the app's NIFs added (build.rs).
 #
 # iOS loads no code but the app's own, so everything is static: the emulator,
 # OTP's NIFs (crypto, asn1, `--enable-static-nifs`) and OpenSSL's libcrypto.
@@ -117,4 +119,11 @@ for archive in "${archives[@]}"; do
 done
 rm -f "$out/liberlang.a"
 xcrun libtool -static -o "$out/liberlang.a" "${paths[@]}"
+# The host links its own driver_tab (the app's static NIFs added to OTP's).
+xcrun ar -t "$out/liberlang.a" | grep -qx driver_tab.o || { echo "no driver_tab.o in libbeam.a" >&2; exit 1; }
+xcrun ar -d "$out/liberlang.a" driver_tab.o
+xcrun ranlib "$out/liberlang.a"
+driver_tab=$(find erts/emulator -name driver_tab.c -path "*$target/opt/*" | head -1)
+[ -n "$driver_tab" ] || { echo "no driver_tab.c for $target" >&2; exit 1; }
+cp "$driver_tab" "$out/driver_tab.c"
 echo "built $out/liberlang.a for $target"

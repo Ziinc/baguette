@@ -16,7 +16,8 @@ pub struct Release {
     pub name: String,
     pub version: String,
     pub window: WindowConfig,
-    /// Where `erl_child_setup` is, which the BEAM starts at boot.
+    /// Where `erl_child_setup` is, which the BEAM starts at boot (iOS has
+    /// none: see `build.rs`).
     pub bindir: PathBuf,
 }
 
@@ -64,7 +65,7 @@ impl Release {
     /// The release at `$BAGUETTE_RELEASE_ROOT`, the one this executable sits
     /// in (`<root>/bin/<name>_app`, as `mix release` lays it out), or the one
     /// a Tauri bundle carries in its resources (`<resources>/release`).
-    #[cfg(not(target_os = "android"))]
+    #[cfg(not(mobile))]
     pub fn locate(resources: Option<PathBuf>) -> Result<Self, String> {
         let around_exe = std::env::current_exe()
             .map(|exe| release_candidates(&exe))
@@ -111,9 +112,9 @@ impl Release {
             })
             .map(|config| config.window)
             .unwrap_or_default();
-        // On Android the release's own ERTS binaries are the build machine's;
-        // `android::unpack` puts the phone's `erl_child_setup` in `bin`.
-        let bindir = if cfg!(target_os = "android") {
+        // On a phone the release's own ERTS binaries are the build machine's;
+        // `mobile::unpack` puts Android's `erl_child_setup` in `bin`.
+        let bindir = if cfg!(mobile) {
             root.join("bin")
         } else {
             root.join(format!("erts-{erts_version}/bin"))
@@ -170,11 +171,11 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
             ("ROOTDIR", release.path("")),
             ("EMU", "beam".into()),
             ("PROGNAME", "erl".into()),
-            // Rustler NIFs look up `enif_*` in this library (see `android`).
+            // Rustler NIFs look up `enif_*` in this library (see `mobile`).
             #[cfg(target_os = "android")]
             (
                 "RUSTLER_BEAM_LIBRARY_PATH",
-                android::native_lib_dir()?
+                mobile::native_lib_dir()?
                     .join("liberlang.so")
                     .display()
                     .to_string(),
@@ -185,7 +186,8 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
     }
 
     let address = (host as *const HostApi as usize).to_string();
-    let args: Vec<String> = [
+    #[cfg_attr(not(target_os = "ios"), allow(unused_mut))]
+    let mut args: Vec<String> = [
         "baguette_host",
         // File names are UTF-8 whatever the locale (`+fnu`); phones have none.
         "-fnu",
@@ -227,6 +229,12 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
     .iter()
     .map(|s| s.to_string())
     .collect();
+    // No terminal to read: a simulator's console is one, which the BEAM
+    // would otherwise poll.
+    #[cfg(target_os = "ios")]
+    if let Some(at) = args.iter().position(|a| a == "-noshell") {
+        args.insert(at + 1, "-noinput".into());
+    }
 
     std::thread::Builder::new()
         .name("beam".into())
@@ -282,8 +290,8 @@ pub fn shipped_name(stem: &str) -> String {
     format!("lib{}.so", &name[..end])
 }
 
-/// Android: the release ships inside this library and is unpacked into the
-/// app's data on first launch.
+/// Android and iOS: the release ships inside this library and is unpacked
+/// into the app's data on first launch.
 ///
 /// Android only runs executables from the app's native library directory and
 /// links each library against what it lists, so the APK carries the BEAM as
@@ -291,9 +299,9 @@ pub fn shipped_name(stem: &str) -> String {
 /// `inet_gethost`) and each NIF as `lib<name>.so` ([`shipped_name`]).
 /// Unpacking links the release to them: `bin/<program>` and every
 /// `priv/<name>.so` and `priv/native/<name>.so` become symlinks into that
-/// directory.
-#[cfg(target_os = "android")]
-pub mod android {
+/// directory. iOS runs no programs and links every NIF into the app.
+#[cfg(mobile)]
+pub mod mobile {
     use std::path::{Path, PathBuf};
 
     #[cfg(baguette_embedded_release)]
@@ -302,6 +310,7 @@ pub mod android {
     static ARCHIVE: &[u8] = &[];
 
     /// The directory Android installed this library in.
+    #[cfg(target_os = "android")]
     pub fn native_lib_dir() -> Result<PathBuf, String> {
         let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
         // SAFETY: dladdr only reads the address and fills `info`.
@@ -333,6 +342,7 @@ pub mod android {
             tar::Archive::new(flate2::read::GzDecoder::new(ARCHIVE))
                 .unpack(&staging)
                 .map_err(|e| format!("unpacking the release: {e}"))?;
+            #[cfg(target_os = "android")]
             link_native(&staging, &native_lib_dir()?)?;
             let _ = std::fs::remove_dir_all(&root);
             std::fs::rename(&staging, &root).map_err(|e| e.to_string())?;
@@ -345,12 +355,13 @@ pub mod android {
                 }
             }
         }
-        log::info!("baguette: release at {}", root.display());
+        crate::log_line(&format!("baguette: release at {}", root.display()));
         Ok(root)
     }
 
     /// Sends the BEAM's stdout and stderr (Logger, `IO.puts`, crash reports)
     /// to logcat under the `beam` tag; Android discards them otherwise.
+    #[cfg(target_os = "android")]
     pub fn log_stdio() {
         let mut fds = [0; 2];
         // SAFETY: pipe fills two descriptors; dup2 points stdout and stderr at
@@ -376,6 +387,7 @@ pub mod android {
             });
     }
 
+    #[cfg(target_os = "android")]
     fn link_native(root: &Path, native: &Path) -> Result<(), String> {
         let link = |target: PathBuf, at: PathBuf| -> Result<(), String> {
             let _ = std::fs::remove_file(&at);

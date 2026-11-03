@@ -5,6 +5,10 @@
 //! On desktop it is an executable (`src/main.rs`); on Android and iOS the
 //! platform loads this library and calls [`run`].
 
+// iOS: Baguette's NIF is linked in, for the BEAM's static NIF table (build.rs).
+#[cfg(target_os = "ios")]
+use baguette_nif as _;
+
 mod animation;
 mod beam;
 mod bridge;
@@ -49,7 +53,7 @@ pub fn run() {
             .with_tag("baguette"),
     );
     #[cfg(target_os = "android")]
-    beam::android::log_stdio();
+    beam::mobile::log_stdio();
     let (host, inbox) = bridge::install();
 
     let builder = tauri::Builder::default()
@@ -62,16 +66,16 @@ pub fn run() {
         .setup(move |app| {
             pick::install(app.handle().clone());
             use tauri::Manager;
-            #[cfg(not(target_os = "android"))]
+            #[cfg(not(mobile))]
             let release = beam::Release::locate(app.path().resource_dir().ok());
             // A phone has no release directory to point at: the release ships
             // inside this library and is unpacked into the app's data.
-            #[cfg(target_os = "android")]
+            #[cfg(mobile)]
             let release = app
                 .path()
                 .app_local_data_dir()
                 .map_err(|e| e.to_string())
-                .and_then(|dir| beam::android::unpack(&dir))
+                .and_then(|dir| beam::mobile::unpack(&dir))
                 .and_then(|root| beam::Release::locate_at(root));
             let handle = app.handle().clone();
             let bridge::Inbox { renders, calls } = inbox;
@@ -127,7 +131,7 @@ pub fn run() {
         .expect("error while running the Baguette host");
 }
 
-/// A line for the platform log: stderr on desktop, logcat on Android.
+/// A line for the platform log: stderr on desktop and iOS, logcat on Android.
 pub(crate) fn log_line(line: &str) {
     #[cfg(target_os = "android")]
     log::info!("{line}");
