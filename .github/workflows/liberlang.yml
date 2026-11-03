@@ -10,8 +10,10 @@ on:
   push:
     branches: [main]
     paths: [scripts/build-liberlang*.sh, .github/workflows/liberlang.yml]
+  # Only when the build scripts change: editing this file alone doesn't
+  # rebuild every BEAM on a pull request (macOS runners are scarce).
   pull_request:
-    paths: [scripts/build-liberlang*.sh, .github/workflows/liberlang.yml]
+    paths: [scripts/build-liberlang*.sh]
   workflow_dispatch:
 
 env:
