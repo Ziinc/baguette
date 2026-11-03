@@ -66,6 +66,12 @@ jobs:
     # the same OTP the release ships, so both share one ERTS.
     runs-on: ubuntu-24.04
     steps:
+      # The runner's preinstalled toolchains leave too little disk for the
+      # host's release build.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
