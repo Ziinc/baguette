@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs an iOS simulator build of a Baguette app (`BAGUETTE_IOS=sim mix
 # release`), launches it, checks that the embedded BEAM boots and Elixir's
-# first frame is drawn, and saves the app's output and a screenshot.
+# first frame is drawn, taps the counter's buttons (COUNTER_TAPS=0 skips that
+# for another app), and saves the app's output and screenshots.
 #
 #   scripts/ios-smoke.sh <path/to/app> <bundle id> [output-dir]
 set -euo pipefail
@@ -66,6 +67,30 @@ wait_for 'baguette: nameservers [0-9a-fA-F:.]+' 60
 wait_for 'baguette: first frame from Elixir' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null
+
+# Taps go through UIKit's touch handling and GPUI to the Elixir view. The
+# host logs where each labelled control is, in points; idb taps there
+# (`brew install facebook/fb/idb-companion` and `pipx install fb-idb`).
+tap() {
+  local at
+  at=$(grep -Eo "baguette: bounds $1 [0-9]+ [0-9]+" "$log" | tail -1 | cut -d' ' -f4-)
+  [ -n "$at" ] || fail "no bounds logged for $1"
+  echo "tap $1 at $at"
+  # shellcheck disable=SC2086
+  idb ui tap --udid "$device" $at
+}
+if [ "${COUNTER_TAPS:-1}" = 1 ]; then
+  command -v idb >/dev/null || fail "idb is not installed (COUNTER_TAPS=0 skips the taps)"
+  wait_for 'baguette: bounds Increment [0-9]+ [0-9]+' 30
+  tap Increment
+  wait_for 'counter: count=1' 20
+  tap Increment
+  wait_for 'counter: count=2' 20
+  tap Decrement
+  wait_for 'counter: count=1$' 20
+  sleep 1
+  xcrun simctl io "$device" screenshot "$out/tapped.png" >/dev/null
+fi
 xcrun simctl spawn "$device" launchctl list | grep -q "$bundle" || fail "the app exited"
 sync_log
 grep -E 'baguette|fork' "$log" | tail -20

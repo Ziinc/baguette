@@ -88,6 +88,9 @@ jobs:
           mix local.hex --force && mix local.rebar --force
           mix deps.get
           mix release --overwrite
+      - name: idb, to tap the simulator
+        if: matrix.kind == 'sim'
+        run: brew install facebook/fb/idb-companion && pipx install fb-idb
       - name: Run on the simulator
         if: matrix.kind == 'sim'
         timeout-minutes: 20

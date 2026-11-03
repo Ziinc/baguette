@@ -333,7 +333,7 @@ impl Renderer<'_, '_> {
         let Some(on_click) = on_click.filter(|_| !disabled) else {
             return observed!(element, focus);
         };
-        #[cfg(target_os = "android")]
+        #[cfg(mobile)]
         let element = element.when_some(attrs.get("aria-label"), |el, label| {
             el.child(report_bounds(label.clone()))
         });
@@ -837,17 +837,22 @@ pub fn click_handler(
     )
 }
 
-/// Logs where a labelled control is on screen, in device pixels, whenever
-/// that changes: `adb shell input tap` needs them, as the Android smoke test
-/// has no accessibility tree to find controls by.
-#[cfg(target_os = "android")]
+/// Logs where a labelled control is on screen whenever that changes, for the
+/// smoke tests, which have no accessibility tree to find controls by: in
+/// device pixels on Android (`adb shell input tap`), in points on iOS
+/// (`idb ui tap`).
+#[cfg(mobile)]
 fn report_bounds(label: String) -> impl IntoElement {
     use std::collections::HashMap;
     use std::sync::Mutex;
     static REPORTED: Mutex<Option<HashMap<String, (i32, i32)>>> = Mutex::new(None);
     gpui::canvas(
         move |bounds, window, _| {
-            let scale = window.scale_factor();
+            let scale = if cfg!(target_os = "android") {
+                window.scale_factor()
+            } else {
+                1.0
+            };
             let center = bounds.center();
             let at = (
                 (f32::from(center.x) * scale) as i32,
