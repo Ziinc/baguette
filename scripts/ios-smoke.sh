@@ -21,16 +21,22 @@ xcrun simctl boot "$device" 2>/dev/null || true
 xcrun simctl bootstatus "$device" -b >/dev/null
 xcrun simctl install "$device" "$app"
 
-# The app's stdout and stderr: the host's lines and the BEAM's output.
-: >"$log"
-xcrun simctl launch --terminate-running-process --stdout="$log" --stderr="$log" "$device" "$bundle"
+# Tauri sends the app's stdout and stderr (the host's lines, the BEAM's
+# output) to the unified log, tagged [stdout] and [stderr].
+xcrun simctl spawn "$device" log stream --style compact --level debug \
+  --predicate "process == \"$exe\"" >"$out/system.log" 2>&1 &
+stream=$!
+trap 'kill "$stream" 2>/dev/null || true' EXIT
+sleep 2
+xcrun simctl launch --terminate-running-process "$device" "$bundle"
+
+sync_log() { grep -E '\[(stdout|stderr)\]' "$out/system.log" >"$log" || true; }
 
 fail() {
+  sync_log
   echo "FAIL: $*"
   xcrun simctl io "$device" screenshot "$out/failure.png" >/dev/null 2>&1 || true
-  xcrun simctl spawn "$device" log show --last 5m --style compact \
-    --predicate "process == \"$exe\"" >"$out/system.log" 2>&1 || true
-  cp ~/Library/Logs/DiagnosticReports/*.ips "$out/" 2>/dev/null || true
+  cp ~/Library/Logs/DiagnosticReports/"$exe"*.ips "$out/" 2>/dev/null || true
   echo "--- app log ---"
   cat "$log"
   exit 1
@@ -40,6 +46,7 @@ fail() {
 wait_for() {
   local deadline=$((SECONDS + $2))
   while ((SECONDS < deadline)); do
+    sync_log
     grep -Eq "$1" "$log" && return 0
     sleep 1
   done
@@ -47,9 +54,12 @@ wait_for() {
 }
 
 wait_for 'baguette: release at' 120
+# The BEAM boots with fork() refused, as a phone's sandbox refuses it.
+wait_for 'baguette: fork\(\) refused' 60
 wait_for 'baguette: first frame from Elixir' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null
 xcrun simctl spawn "$device" launchctl list | grep -q "$bundle" || fail "the app exited"
+sync_log
 grep -E 'baguette|fork' "$log" | tail -20
 echo "PASS: the app boots its release and draws Elixir's first frame on iOS"
