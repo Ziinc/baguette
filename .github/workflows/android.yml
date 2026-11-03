@@ -19,6 +19,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
+      # The runner's preinstalled toolchains leave too little disk for the
+      # NDK, the emulator and the host's link.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
