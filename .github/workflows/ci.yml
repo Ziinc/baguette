@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+  workflow_dispatch:
 
 env:
   OTP_TAG: OTP-29.1.2
@@ -63,7 +64,10 @@ jobs:
 
   e2e-linux:
     # The counter as a real `mix release`: the host links liberlang built from
-    # the same OTP the release ships, so both share one ERTS.
+    # the same OTP the release ships, so both share one ERTS. Like the other
+    # platforms' example runs, pull requests skip it: merges to main, release
+    # tags and manual runs run it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       # The runner's preinstalled toolchains leave too little disk for the
