@@ -36,7 +36,7 @@ jobs:
       - name: OTP's ERTS
         run: ls -la "$(erl -noshell -eval 'io:put_chars(code:root_dir()), halt().')"/erts-*/bin
       - name: Release tests
-        run: mix deps.get && mix test test/baguette/release_test.exs
+        run: mix deps.get && mix format --check-formatted && mix test test/baguette/release_test.exs
       - name: Mesa (the runner has no GPU)
         env:
           GH_TOKEN: ${{ github.token }}
@@ -48,6 +48,15 @@ jobs:
       - name: Counter release draws its first frame
         run: scripts/e2e-windows.sh e2e-windows
         timeout-minutes: 30
+      - name: Releases with gpui-playwright, driven from ExUnit
+        run: |
+          for app in counter board todo gallery; do
+            (cd examples/$app && mix deps.get && \
+              BAGUETTE_HOST_FEATURES=playwright MIX_ENV=prod mix release --overwrite)
+            cp "$MESA_DLLS"/*.dll examples/$app/_build/prod/rel/$app/bin/
+          done
+          GALLIUM_DRIVER=llvmpipe mix test --only playwright
+        timeout-minutes: 45
       - uses: actions/upload-artifact@v4
         if: always()
         with:

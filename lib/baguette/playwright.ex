@@ -61,6 +61,9 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
     """
     @spec start_app!(Path.t(), keyword()) :: app()
     def start_app!(path, opts \\ []) do
+      # `bin/<name>_app` is `bin/<name>_app.exe` on Windows.
+      path = if File.exists?(path <> ".exe"), do: path <> ".exe", else: path
+
       endpoint_file =
         Path.join(System.tmp_dir!(), "baguette-pw-#{System.unique_integer([:positive])}")
 
@@ -83,7 +86,7 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
     @doc "Stops an app started by `start_app!/2` and waits until it has exited."
     @spec stop_app(app()) :: :ok
     def stop_app(%{os_pid: os_pid}) do
-      System.cmd("kill", ["#{os_pid}"], stderr_to_stdout: true)
+      signal(os_pid, :term)
       await_exit(os_pid, 50)
     end
 
@@ -96,8 +99,7 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
 
     @doc "Whether the app's process is still running."
     @spec alive?(app()) :: boolean()
-    def alive?(%{os_pid: os_pid}),
-      do: match?({_, 0}, System.cmd("kill", ["-0", "#{os_pid}"], stderr_to_stdout: true))
+    def alive?(%{os_pid: os_pid}), do: os_alive?(os_pid)
 
     @doc "Connects to the app and returns its main window as a page."
     @spec connect!(app()) :: page()
@@ -411,7 +413,7 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
         )
 
     defp await_endpoint!(file, os_pid, timeout) when timeout <= 0 do
-      System.cmd("kill", ["-9", "#{os_pid}"], stderr_to_stdout: true)
+      signal(os_pid, :kill)
       raise "the app did not start gpui-playwright (no endpoint in #{file})"
     end
 
@@ -427,18 +429,45 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
     end
 
     defp await_exit(os_pid, 0) do
-      System.cmd("kill", ["-9", "#{os_pid}"], stderr_to_stdout: true)
+      signal(os_pid, :kill)
       :ok
     end
 
     defp await_exit(os_pid, tries) do
-      case System.cmd("kill", ["-0", "#{os_pid}"], stderr_to_stdout: true) do
-        {_, 0} ->
-          Process.sleep(100)
-          await_exit(os_pid, tries - 1)
+      if os_alive?(os_pid) do
+        Process.sleep(100)
+        await_exit(os_pid, tries - 1)
+      else
+        :ok
+      end
+    end
+
+    # Windows has no signals: `taskkill` asks the window to close, and `/F`
+    # ends the process.
+    defp signal(os_pid, how) do
+      {command, args} =
+        case {:os.type(), how} do
+          {{:win32, _}, :term} -> {"taskkill", ["/PID", "#{os_pid}"]}
+          {{:win32, _}, :kill} -> {"taskkill", ["/F", "/PID", "#{os_pid}"]}
+          {_, :term} -> {"kill", ["#{os_pid}"]}
+          {_, :kill} -> {"kill", ["-9", "#{os_pid}"]}
+        end
+
+      System.cmd(command, args, stderr_to_stdout: true)
+    end
+
+    defp os_alive?(os_pid) do
+      case :os.type() do
+        {:win32, _} ->
+          {out, _} =
+            System.cmd("tasklist", ["/FI", "PID eq #{os_pid}", "/FO", "CSV", "/NH"],
+              stderr_to_stdout: true
+            )
+
+          out =~ ~s(,"#{os_pid}",)
 
         _ ->
-          :ok
+          match?({_, 0}, System.cmd("kill", ["-0", "#{os_pid}"], stderr_to_stdout: true))
       end
     end
 

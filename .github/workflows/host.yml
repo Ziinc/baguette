@@ -27,7 +27,13 @@ jobs:
             os: macos-15
           - target: x86_64-macos
             os: macos-15-intel
+          # Links no BEAM: it loads the release's own beam.smp.dll.
+          - target: x86_64-windows
+            os: windows-2025
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -44,13 +50,14 @@ jobs:
             libxrandr-dev clang libncurses-dev
       - uses: actions/cache@v4
         id: liberlang
+        if: runner.os != 'Windows'
         with:
           path: |
             ~/liberlang/liberlang.a
             ~/liberlang/otp
           key: liberlang-${{ matrix.target }}-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang.sh') }}
       - name: Build liberlang
-        if: steps.liberlang.outputs.cache-hit != 'true'
+        if: runner.os != 'Windows' && steps.liberlang.outputs.cache-hit != 'true'
         run: |
           if [ "$RUNNER_OS" = macOS ]; then brew install openssl@3; fi
           scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
@@ -62,7 +69,7 @@ jobs:
           version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
           asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz"
           mkdir -p out
-          tar -czf "out/$asset" -C native/target/dist baguette_host
+          tar -czf "out/$asset" -C native/target/dist baguette_host${{ runner.os == 'Windows' && '.exe' || '' }}
       - uses: actions/upload-artifact@v4
         with:
           name: host-${{ matrix.target }}
