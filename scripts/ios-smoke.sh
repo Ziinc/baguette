@@ -23,25 +23,28 @@ xcrun simctl bootstatus "$device" -b >/dev/null
 xcrun simctl install "$device" "$app"
 
 # Tauri sends the app's stdout and stderr (the host's lines, the BEAM's
-# output) to the unified log, tagged [stdout] and [stderr].
-xcrun simctl spawn "$device" log stream --style compact --level debug \
-  --predicate "process == \"$exe\"" >"$out/system.log" 2>&1 &
-stream=$!
-trap 'kill "$stream" 2>/dev/null || true' EXIT
-sleep 2
+# output) to the unified log, tagged [stdout] and [stderr]. It is read from
+# just before launch on each check: `log stream` can attach after the app's
+# first lines.
+since=$(date '+%Y-%m-%d %H:%M:%S')
+sleep 1
 xcrun simctl launch --terminate-running-process "$device" "$bundle"
 
-# The whole stream: lines written together reach the log as one entry, whose
-# later lines carry no [stdout]/[stderr] tag.
-sync_log() { cp "$out/system.log" "$log"; }
+# Every line since launch, untagged ones too: lines written together reach
+# the log as one entry, whose later lines carry no tag.
+sync_log() {
+  xcrun simctl spawn "$device" log show --style compact --info --debug --start "$since" \
+    --predicate "process == \"$exe\"" >"$out/system.log" 2>&1 || true
+  cp "$out/system.log" "$log"
+}
 
 fail() {
   sync_log
   echo "FAIL: $*"
   xcrun simctl io "$device" screenshot "$out/failure.png" >/dev/null 2>&1 || true
   cp ~/Library/Logs/DiagnosticReports/"$exe"*.ips "$out/" 2>/dev/null || true
-  echo "--- app log ---"
-  cat "$log"
+  echo "--- app log (the app's own lines; the rest is in $out/system.log) ---"
+  grep -E '\[(stdout|stderr)\]|baguette|counter|ios_nif' "$log" | tail -80 || true
   exit 1
 }
 
