@@ -15,6 +15,7 @@ defmodule Baguette.E2E.PortalPlaywrightTest do
   alias Baguette.Playwright
 
   @moduletag :playwright
+  @moduletag skip: Baguette.Test.E2E.xdg_portal()
 
   @counter Path.expand("../../examples/counter/_build/prod/rel/counter/bin/counter_app", __DIR__)
   @gallery Path.expand("../../examples/gallery/_build/prod/rel/gallery/bin/gallery_app", __DIR__)

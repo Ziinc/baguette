@@ -141,6 +141,11 @@ jobs:
             examples/broadway/_build/prod/bundle/deb/*.deb
             examples/broadway/_build/prod/bundle/appimage/*.AppImage
 
+  windows:
+    # Pull requests skip it, as they do macOS: Windows runners are slow.
+    if: github.event_name != 'pull_request'
+    uses: ./.github/workflows/windows.yml
+
   macos:
     # The Firehose disk image, mounted and booted as a user gets it. Signed
     # and notarized when the repository has Tauri's APPLE_* secrets. Pull
