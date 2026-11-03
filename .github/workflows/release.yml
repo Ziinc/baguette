@@ -6,13 +6,16 @@ name: Release
 # carries Baguette's precompiled NIFs and hosts, which apps download (nif.yml,
 # host.yml).
 #
-# Running it by hand (workflow_dispatch) is a dry run: everything is built and
-# kept as the run's artifacts, with the host checksums in its summary, but
-# nothing is published.
+# Running it by hand (workflow_dispatch), or pushing to the `release-dry-run`
+# branch, is a dry run: everything is built and kept as the run's artifacts,
+# with the host checksums in its summary, but nothing is published. The
+# branch is for when a run can't be started by hand (GitHub's mobile app,
+# or a token without workflow-dispatch access).
 
 on:
   push:
     tags: ["v*"]
+    branches: [release-dry-run]
   workflow_dispatch:
 
 jobs:
