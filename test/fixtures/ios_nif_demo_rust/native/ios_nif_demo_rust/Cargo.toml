@@ -1,0 +1,13 @@
+[package]
+name = "ios_nif_demo_rust"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+rustler = "0.38"
+
+[workspace]

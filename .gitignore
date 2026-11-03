@@ -16,3 +16,6 @@ erl_crash.dump
 /test/fixtures/*/_build/
 /native/baguette_ios/gen/
 /native/baguette_ios/node_modules/
+/test/fixtures/*/deps/
+/test/fixtures/*/priv/
+/test/fixtures/*/native/*/target/
