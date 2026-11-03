@@ -571,6 +571,8 @@ defmodule Baguette.Release do
     File.rm_rf!(Path.join(project, "gen/apple"))
     run!(project, "npm", ["run", "tauri", "--", "ios", "init", "--ci", "--config", config], env)
     patch_xcodegen!(Path.join(project, "gen/apple/project.yml"))
+    # `ios init` generated the Xcode project before the patch; again with it.
+    run!(Path.join(project, "gen/apple"), "xcodegen", ["generate"], [])
 
     run!(
       project,
