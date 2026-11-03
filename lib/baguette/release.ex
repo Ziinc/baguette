@@ -56,8 +56,8 @@ defmodule Baguette.Release do
   }
 
   @ios_targets %{
-    "sim" => %{triple: "aarch64-apple-ios-sim", tauri: "aarch64-sim"},
-    "device" => %{triple: "aarch64-apple-ios", tauri: "aarch64"}
+    "sim" => %{triple: "aarch64-apple-ios-sim", tauri: "aarch64-sim", simulator: true},
+    "device" => %{triple: "aarch64-apple-ios", tauri: "aarch64", simulator: false}
   }
 
   @doc "The host's Cargo features: the release option plus `BAGUETTE_HOST_FEATURES`."
@@ -509,17 +509,21 @@ defmodule Baguette.Release do
   the OTP this release was built with, until prebuilt ones are published.
   Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
 
-  The simulator build is unsigned. The app lands in `_build/<env>/ios/` as
-  `<name>.app`.
+  The simulator build is an unsigned debug build, `_build/<env>/ios/<name>.app`.
+  The device build is an optimised `_build/<env>/ios/<name>.ipa`, unsigned
+  unless signing is configured: the Tauri CLI signs it when
+  `APPLE_DEVELOPMENT_TEAM` is set, with the identities in the keychain or
+  `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`
+  (and App Store Connect's `APPLE_API_KEY`, `APPLE_API_ISSUER` and
+  `APPLE_API_KEY_PATH` to manage profiles). `BAGUETTE_IOS_EXPORT_METHOD`
+  (`app-store-connect`, `release-testing` or `debugging`) chooses how the
+  signed archive is exported. The README's iOS section has the details.
   """
   @spec ios(Mix.Release.t()) :: Mix.Release.t()
   def ios(%Mix.Release{} = release) do
     case System.get_env("BAGUETTE_IOS") do
       nil ->
         release
-
-      "device" ->
-        Mix.raise("BAGUETTE_IOS=device: device builds (and their signing) are not supported yet")
 
       kind ->
         ios(release, Map.get(@ios_targets, kind) || Mix.raise("BAGUETTE_IOS is sim or device"))
@@ -571,25 +575,49 @@ defmodule Baguette.Release do
     run!(
       project,
       "npm",
-      ["run", "tauri", "--", "ios", "build", "--ci", "--config", config] ++
-        ["--debug", "--no-sign", "--target", target.tauri] ++ tauri_features(release.options),
+      ["run", "tauri", "--", "ios", "build", "--ci", "--config", config, "--target", target.tauri] ++
+        ios_build_options(target) ++ tauri_features(release.options),
       env
     )
 
-    [built | _] = Path.wildcard(Path.join(project, "gen/apple/build/**/*.app"))
-    app = Path.join(out, "#{name}.app")
-    File.rm_rf!(app)
-    File.cp_r!(built, app)
-    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(app)])
+    ext = if target.simulator, do: "app", else: "ipa"
+    [built | _] = Path.wildcard(Path.join(project, "gen/apple/build/**/*.#{ext}"))
+    product = Path.join(out, "#{name}.#{ext}")
+    File.rm_rf!(product)
+    File.cp_r!(built, product)
+    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(product)])
     release
+  end
+
+  # The simulator gets a quick unsigned debug build. A device gets an
+  # optimised build, signed by the Tauri CLI when the environment names a
+  # development team, else unsigned.
+  defp ios_build_options(%{simulator: true}), do: ["--debug", "--no-sign"]
+
+  defp ios_build_options(_device) do
+    sign =
+      if System.get_env("APPLE_DEVELOPMENT_TEAM") in [nil, ""], do: ["--no-sign"], else: []
+
+    export =
+      case System.get_env("BAGUETTE_IOS_EXPORT_METHOD") do
+        method when method in [nil, ""] -> []
+        method -> ["--export-method", method]
+      end
+
+    sign ++ export
   end
 
   # The app's Rust library carries the BEAM, whose `enif_*` functions only
   # NIFs call (Rustler finds them with `dlsym`): `-export_dynamic` keeps the
-  # linker from dead-stripping them. The BEAM also needs libc++.
+  # linker from dead-stripping them, and stripping a release build keeps
+  # global symbols. The BEAM also needs libc++.
   defp patch_xcodegen!(path) do
     at = "        ENABLE_BITCODE: false\n"
-    flags = "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++\n"
+
+    flags =
+      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++\n" <>
+        "        STRIP_STYLE: non-global\n"
+
     yml = File.read!(path)
 
     if not String.contains?(yml, at),

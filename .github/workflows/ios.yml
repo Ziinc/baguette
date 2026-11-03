@@ -1,8 +1,10 @@
 name: iOS
 
-# The counter example as an iOS simulator app: the embedded BEAM boots and
-# Elixir's first frame is drawn. macOS minutes are dear, so this runs on
-# pushes to main and on demand, not on pull requests.
+# The counter example for iOS. On the simulator it is run: the embedded BEAM
+# boots and Elixir's first frame is drawn. For devices it is built as an
+# unsigned .ipa (apps sign their own; see the README) and checked, not run.
+# macOS minutes are dear, so this runs on pushes to main and on demand, not on
+# pull requests.
 # TODO: drop the claude/ios branch once the iOS work is merged.
 
 on:
@@ -16,17 +18,24 @@ env:
   LANG: C.UTF-8
 
 jobs:
-  simulator:
+  counter:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: sim, target: aarch64-apple-ios-sim }
+          - { kind: device, target: aarch64-apple-ios }
+    name: ${{ matrix.kind }}
     runs-on: macos-15
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-ios-sim
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
-          key: ios
+          key: ios-${{ matrix.kind }}
           workspaces: native
       - uses: actions/cache@v4
         with:
@@ -55,19 +64,19 @@ jobs:
       - uses: actions/cache@v4
         id: liberlang-ios
         with:
-          path: ~/liberlang-ios/aarch64-apple-ios-sim
-          key: liberlang-ios-sim-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang-ios.sh') }}
-      - name: Cross-build OTP for the iOS simulator
+          path: ~/liberlang-ios/${{ matrix.target }}
+          key: liberlang-ios-${{ matrix.kind }}-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang-ios.sh') }}
+      - name: Cross-build OTP for iOS
         if: steps.liberlang-ios.outputs.cache-hit != 'true'
         run: |
-          scripts/build-liberlang-ios.sh "$OTP_TAG" sim ~/liberlang-ios-build
-          mkdir -p ~/liberlang-ios/aarch64-apple-ios-sim
-          cp ~/liberlang-ios-build/{liberlang.a,driver_tab.c} ~/liberlang-ios/aarch64-apple-ios-sim/
+          scripts/build-liberlang-ios.sh "$OTP_TAG" ${{ matrix.kind }} ~/liberlang-ios-build
+          mkdir -p ~/liberlang-ios/${{ matrix.target }}
+          cp ~/liberlang-ios-build/{liberlang.a,driver_tab.c} ~/liberlang-ios/${{ matrix.target }}/
       - run: command -v xcodegen >/dev/null || brew install xcodegen
       - name: Build the counter app
         working-directory: examples/counter
         env:
-          BAGUETTE_IOS: sim
+          BAGUETTE_IOS: ${{ matrix.kind }}
           MIX_ENV: prod
         run: |
           export BAGUETTE_LIBERLANG=$HOME/liberlang-ios
@@ -75,11 +84,17 @@ jobs:
           mix deps.get
           mix release --overwrite
       - name: Run on the simulator
+        if: matrix.kind == 'sim'
         timeout-minutes: 20
         run: scripts/ios-smoke.sh examples/counter/_build/prod/ios/counter.app dev.baguette.counter ios-smoke
+      - name: Check the device build
+        if: matrix.kind == 'device'
+        run: scripts/ios-check-ipa.sh examples/counter/_build/prod/ios/counter.ipa
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: ios-smoke
-          path: ios-smoke
+          name: ios-${{ matrix.kind }}
+          path: |
+            ios-smoke
+            examples/counter/_build/prod/ios/counter.ipa
           if-no-files-found: ignore
