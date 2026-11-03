@@ -6,7 +6,8 @@ license = "MIT"
 publish = false
 
 [lib]
-crate-type = ["cdylib", "staticlib"]
+# `rlib`: on iOS the host links it in (`baguette_host`, `build.rs`).
+crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
 baguette_abi = { path = "../baguette_abi" }
