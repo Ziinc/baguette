@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Xcode's clang for an iOS NIF built by its own Makefile (elixir_make), as
+# `Baguette.Release.IosNifs` sets it: CC=nif-cc, CXX=nif-cc++.
+#
+# iOS loads no code but the app's, so the NIF is linked into the app instead
+# of loaded from a shared library:
+#   * it compiles with -DSTATIC_ERLANG_NIF_LIBNAME=$BAGUETTE_NIF_CC_NAME, so
+#     ERL_NIF_INIT defines <name>_nif_init for the BEAM's static NIF table;
+#   * the Makefile's shared-library link (-shared, -dynamiclib or -bundle)
+#     becomes a relocatable object (-r) at the same path, which is archived.
+#
+# BAGUETTE_NIF_CC_SDK is iphoneos or iphonesimulator, BAGUETTE_NIF_CC_MIN the
+# iOS version to build for.
+set -euo pipefail
+
+case $0 in *++) driver=clang++ ;; *) driver=clang ;; esac
+sdk=${BAGUETTE_NIF_CC_SDK:?}
+case $sdk in
+  iphonesimulator) min=-mios-simulator-version-min=${BAGUETTE_NIF_CC_MIN:-15.0} ;;
+  *) min=-mios-version-min=${BAGUETTE_NIF_CC_MIN:-15.0} ;;
+esac
+
+link=0
+for arg in "$@"; do
+  case $arg in -shared | -dynamiclib | -bundle) link=1 ;; esac
+done
+
+args=()
+skip=0
+for arg in "$@"; do
+  if ((skip)); then
+    skip=0
+    continue
+  fi
+  case $arg in
+    # Ours: one architecture, the SDK's.
+    -arch | -target) skip=1 ;;
+    -mmacosx-version-min=* | -mmacos-version-min=*) ;;
+    -shared | -dynamiclib | -bundle | -flat_namespace) ;;
+    -undefined) ((link)) && skip=1 || args+=("$arg") ;;
+    -Wl,-undefined,* | -Wl,-flat_namespace) ;;
+    # Libraries are the app's to link; a relocatable object takes none.
+    -l* | -L*) ((link)) || args+=("$arg") ;;
+    *) args+=("$arg") ;;
+  esac
+done
+
+# The define also applies when a Makefile compiles and links in one step.
+define=-DSTATIC_ERLANG_NIF_LIBNAME=${BAGUETTE_NIF_CC_NAME:?}
+if ((link)); then
+  exec xcrun -sdk "$sdk" "$driver" -arch arm64 "$min" "$define" -r "${args[@]}"
+else
+  exec xcrun -sdk "$sdk" "$driver" -arch arm64 "$min" "$define" "${args[@]}"
+fi

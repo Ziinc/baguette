@@ -268,8 +268,13 @@ Organizer, `fastlane resign`).
 
 iOS runs only code linked into the app, and starts no other programs:
 
-- The BEAM (`liberlang.a`) and every NIF are linked into the app. Baguette's
-  NIF is; a release whose dependencies ship other NIFs is refused for now.
+- The BEAM (`liberlang.a`) and every NIF are linked into the app. Each NIF
+  your dependencies carry is built again for iOS as a static archive: a
+  Rustler crate (Rustler 0.37 or later) with `cargo rustc --crate-type
+  staticlib`, an `elixir_make` NIF with its own Makefile and a compiler
+  wrapper that makes the link static. Skip or tune one with
+  `baguette: [ios_nifs: [dep: false]]` or `[dep: [args: [...], env: [...]]]`
+  (`Baguette.Release.IosNifs`).
 - `System.cmd/3`, `:os.cmd/1` and ports to external programs raise
   `badarg`. The BEAM is built with OTP's iOS settings (no JIT, static NIFs)
   and needs no patches; see `scripts/build-liberlang-ios.sh`.

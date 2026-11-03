@@ -2,7 +2,8 @@
 # Installs an iOS simulator build of a Baguette app (`BAGUETTE_IOS=sim mix
 # release`), launches it, checks that the embedded BEAM boots and Elixir's
 # first frame is drawn, taps the counter's buttons (COUNTER_TAPS=0 skips that
-# for another app), and saves the app's output and screenshots.
+# for another app; EXPECT names a line it logs instead), and saves the app's
+# output and screenshots.
 #
 #   scripts/ios-smoke.sh <path/to/app> <bundle id> [output-dir]
 set -euo pipefail
@@ -67,6 +68,11 @@ wait_for 'baguette: nameservers [0-9a-fA-F:.]+' 60
 wait_for 'baguette: first frame from Elixir' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null
+
+# Another app's own line to wait for (EXPECT, an extended regex).
+if [ -n "${EXPECT:-}" ]; then
+  wait_for "$EXPECT" 30
+fi
 
 # Taps go through UIKit's touch handling and GPUI to the Elixir view. The
 # host logs where each labelled control is, in points; idb taps there

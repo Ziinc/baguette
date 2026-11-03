@@ -105,6 +105,27 @@ jobs:
         if: matrix.kind == 'sim'
         timeout-minutes: 20
         run: scripts/ios-smoke.sh examples/counter/_build/prod/ios/counter.app dev.baguette.counter ios-smoke
+      # Dependencies' NIFs (Rustler and elixir_make), built for iOS and linked
+      # into the app.
+      - name: Build the NIF fixture app
+        if: matrix.kind == 'sim'
+        working-directory: test/fixtures/ios_nif_demo
+        env:
+          BAGUETTE_IOS: sim
+          MIX_ENV: prod
+        run: |
+          export BAGUETTE_LIBERLANG=$HOME/liberlang-ios
+          mix deps.get
+          mix release --overwrite
+      - name: Run the NIF fixture app on the simulator
+        if: matrix.kind == 'sim'
+        timeout-minutes: 15
+        env:
+          COUNTER_TAPS: "0"
+          EXPECT: "ios_nif_demo: add=5 mul=12"
+        run: |
+          scripts/ios-smoke.sh test/fixtures/ios_nif_demo/_build/prod/ios/ios_nif_demo.app \
+            dev.baguette.iosnifdemo ios-smoke-nifs
       - name: Check the device build
         if: matrix.kind == 'device'
         run: |
@@ -125,5 +146,6 @@ jobs:
           name: ios-${{ matrix.kind }}
           path: |
             ios-smoke
+            ios-smoke-nifs
             examples/counter/_build/prod/ios/counter.ipa
           if-no-files-found: ignore

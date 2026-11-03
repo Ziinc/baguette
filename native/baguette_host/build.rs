@@ -89,7 +89,9 @@ fn baguette_env(name: &str) -> Option<std::ffi::OsString> {
 /// in ERTS's static NIF table, `erts_static_nif_tab`. `liberlang.a` leaves
 /// that table (`driver_tab.o`) out and ships OTP's generated `driver_tab.c`
 /// beside it; this compiles that table with Baguette's NIF added (a
-/// dependency on iOS), without OTP's headers.
+/// dependency on iOS), and every `lib<name>.a` in `BAGUETTE_IOS_NIFS` (the
+/// release's other NIFs, from `Baguette.Release.IosNifs`), which it links,
+/// without OTP's headers.
 ///
 /// The same file makes `fork()` fail, as the device sandbox does on a phone,
 /// so the simulator boots the BEAM the way a phone does: ERTS forks
@@ -102,8 +104,28 @@ fn ios_glue(liberlang: &std::path::Path) {
     println!("cargo::rerun-if-changed={}", source.display());
     let table = std::fs::read_to_string(&source)
         .unwrap_or_else(|e| panic!("{}: {e} (from build-liberlang-ios.sh)", source.display()));
+    let mut nifs = vec!["baguette_nif".to_string()];
+    if let Some(dir) = baguette_env("BAGUETTE_IOS_NIFS").map(PathBuf::from) {
+        println!("cargo::rerun-if-changed={}", dir.display());
+        println!("cargo::rustc-link-search=native={}", dir.display());
+        let mut archives: Vec<String> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().into_string().ok()?;
+                Some(name.strip_prefix("lib")?.strip_suffix(".a")?.to_owned())
+            })
+            .collect();
+        archives.sort();
+        for name in archives {
+            println!("cargo::rustc-link-lib=static={name}");
+            nifs.push(name);
+        }
+    }
+    let nifs: Vec<&str> = nifs.iter().map(String::as_str).collect();
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("baguette_ios_erts.c");
-    std::fs::write(&out, ios_driver_tab(&table, &["baguette_nif"])).unwrap();
+    std::fs::write(&out, ios_driver_tab(&table, &nifs)).unwrap();
     cc::Build::new().file(&out).compile("baguette_ios_erts");
     // `res_ninit` and friends, for `baguette_nameservers`.
     println!("cargo::rustc-link-lib=resolv");

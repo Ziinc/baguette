@@ -42,7 +42,7 @@ defmodule Baguette.Release do
   iOS app.
   """
 
-  alias Baguette.Release.{AndroidNifs, Slim}
+  alias Baguette.Release.{AndroidNifs, IosNifs, Slim}
 
   # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
   @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
@@ -516,8 +516,9 @@ defmodule Baguette.Release do
   other programs either: `System.cmd/3`, `:os.cmd/1` and ports to external
   programs fail with `badarg` (see `scripts/build-liberlang-ios.sh`).
 
-  Baguette's own NIF is linked in; a release with other NIFs is refused for
-  now. The BEAM is downloaded like the desktop one; a `BAGUETTE_LIBERLANG`
+  Every NIF is linked in: Baguette's own, and each one the release's
+  dependencies carry, built again for iOS as a static archive; see
+  `Baguette.Release.IosNifs`, and its `ios_nifs` option. The BEAM is downloaded like the desktop one; a `BAGUETTE_LIBERLANG`
   of your own must hold `<target>/liberlang.a` and `<target>/driver_tab.c`
   from `scripts/build-liberlang-ios.sh`, built with the OTP this release
   was built with. Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
@@ -551,14 +552,27 @@ defmodule Baguette.Release do
     out = Path.join(Mix.Project.build_path(), "ios")
     File.mkdir_p!(out)
 
-    case for %{app: app} <- AndroidNifs.find(Path.join(release.path, "lib")),
-             app != "baguette",
-             do: app do
-      [] -> :ok
-      apps -> Mix.raise("iOS builds can't link these apps' NIFs yet: #{Enum.join(apps, ", ")}")
-    end
-
     liberlang = mobile_liberlang!([target.triple])
+
+    # Every other NIF the release carries, built as a static archive the host
+    # links (see `IosNifs`).
+    nifs = Path.join([out, "nifs", target.triple, "link"])
+    File.rm_rf!(nifs)
+
+    release.path
+    |> Path.join("lib")
+    |> AndroidNifs.find()
+    |> IosNifs.plan(target.triple,
+      deps: nif_sources(),
+      sdk: if(target.simulator, do: "iphonesimulator", else: "iphoneos"),
+      cc: Path.join(baguette_root(), "priv/ios/nif-cc"),
+      erts_include: Path.join([:code.root_dir(), "erts-#{release.erts_version}", "include"]),
+      out: Path.join(out, "nifs"),
+      overrides: options[:ios_nifs] || [],
+      skip: ["baguette"]
+    )
+    |> IosNifs.build!(nifs, &run!/4)
+
     archive = Path.join(out, "release.tar.gz")
     :ok = :erl_tar.create(String.to_charlist(archive), archive_files(release.path), [:compressed])
 
@@ -578,6 +592,7 @@ defmodule Baguette.Release do
     env = [
       {"TAURI_BAGUETTE_LIBERLANG", liberlang},
       {"TAURI_BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"TAURI_BAGUETTE_IOS_NIFS", nifs},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "ios"])}
     ]
 
