@@ -7,8 +7,6 @@ name: Windows
 on:
   workflow_call:
   workflow_dispatch:
-  push:
-    branches: [claude/windows]
 
 env:
   LANG: C.UTF-8
