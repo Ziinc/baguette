@@ -105,6 +105,8 @@ fn ios_glue(liberlang: &std::path::Path) {
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("baguette_ios_erts.c");
     std::fs::write(&out, ios_driver_tab(&table, &["baguette_nif"])).unwrap();
     cc::Build::new().file(&out).compile("baguette_ios_erts");
+    // `res_ninit` and friends, for `baguette_nameservers`.
+    println!("cargo::rustc-link-lib=resolv");
 }
 
 /// OTP's `driver_tab.c` with `nifs` added to its static NIF table and its
