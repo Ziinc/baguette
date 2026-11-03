@@ -1,9 +1,10 @@
 name: Android
 
+# The examples as Android apps. Pull requests skip them; merges to main,
+# release tags (release.yml) and manual runs run them.
 on:
   push:
     branches: [main]
-  pull_request:
   workflow_dispatch:
   workflow_call:
 
