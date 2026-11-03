@@ -238,6 +238,16 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
     if let Some(at) = args.iter().position(|a| a == "-noshell") {
         args.insert(at + 1, "-noinput".into());
     }
+    // iOS: the system's DNS servers, for `Baguette.DNS`.
+    #[cfg(all(target_os = "ios", baguette_beam))]
+    if let Some(at) = args.iter().position(|a| a == "-baguette_platform") {
+        let servers = ios_nameservers();
+        crate::log_line(&format!("baguette: nameservers {servers}"));
+        if !servers.is_empty() {
+            args.insert(at, servers);
+            args.insert(at, "-baguette_nameservers".into());
+        }
+    }
 
     std::thread::Builder::new()
         .name("beam".into())
@@ -339,6 +349,23 @@ mod windows {
             start(argc, argv);
         }
     }
+}
+
+/// The system's DNS servers, comma-separated (`build.rs` compiles the C).
+#[cfg(all(target_os = "ios", baguette_beam))]
+fn ios_nameservers() -> String {
+    unsafe extern "C" {
+        fn baguette_nameservers(out: *mut std::ffi::c_char, len: usize) -> std::ffi::c_int;
+    }
+    let mut buf = [0u8; 512];
+    // SAFETY: the C writes at most `len` bytes, NUL-terminated.
+    let count = unsafe { baguette_nameservers(buf.as_mut_ptr().cast(), buf.len()) };
+    if count <= 0 {
+        return String::new();
+    }
+    std::ffi::CStr::from_bytes_until_nul(&buf)
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default()
 }
 
 #[cfg(not(baguette_beam))]

@@ -214,8 +214,9 @@ BAGUETTE_IOS=device MIX_ENV=prod mix release  # _build/prod/ios/my_app.ipa
 
 It needs a Mac with Xcode, `xcodegen` (`brew install xcodegen`), Node, and
 Rust's target for the build (`rustup target add aarch64-apple-ios-sim
-aarch64-apple-ios`). Until prebuilt iOS BEAMs are published, build one with
-the OTP you build the release with, and point `BAGUETTE_LIBERLANG` at it:
+aarch64-apple-ios`). `mix release` downloads the prebuilt iOS BEAM for your
+OTP version, as on desktop. To use your own, build it with the OTP you build
+the release with and point `BAGUETTE_LIBERLANG` at it:
 
 ```sh
 scripts/build-liberlang-ios.sh OTP-29.1.2 sim ~/liberlang-ios-build
@@ -226,7 +227,8 @@ export BAGUETTE_LIBERLANG=~/liberlang-ios
 
 (`device` and `aarch64-apple-ios` for a device build.) The simulator build is
 an unsigned debug app for an Apple silicon Mac's simulator:
-`xcrun simctl install booted _build/prod/ios/my_app.app`.
+`xcrun simctl install booted _build/prod/ios/my_app.app`. The device build is
+optimised; `BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either.
 
 ### Signing
 
@@ -271,8 +273,9 @@ iOS runs only code linked into the app, and starts no other programs:
 - `System.cmd/3`, `:os.cmd/1` and ports to external programs raise
   `badarg`. The BEAM is built with OTP's iOS settings (no JIT, static NIFs)
   and needs no patches; see `scripts/build-liberlang-ios.sh`.
-- No distribution (`epmd`), and hostname lookups need Erlang's own resolver
-  (`:inet_db.set_lookup([:file, :dns])`) until Baguette sets it up.
+- No distribution (`epmd`). Hostname lookups use the hosts file and
+  Erlang's own DNS resolver (`[:file, :dns]`) with the system's DNS servers,
+  which Baguette sets up at startup.
 - Output from the BEAM goes to the device log
   (`xcrun simctl spawn booted log stream --predicate 'process == "my_app"'`).
 

@@ -5,11 +5,10 @@ name: iOS
 # unsigned .ipa (apps sign their own; see the README) and checked, not run.
 # macOS minutes are dear, so this runs on pushes to main and on demand, not on
 # pull requests.
-# TODO: drop the claude/ios* branches once the stacked iOS PRs are merged.
 
 on:
   push:
-    branches: [main, "claude/ios*"]
+    branches: [main]
   workflow_dispatch:
 
 # A newer push supersedes a run still going on the same branch.
@@ -88,6 +87,19 @@ jobs:
           mix local.hex --force && mix local.rebar --force
           mix deps.get
           mix release --overwrite
+      # idb-companion has no bottle and compiles only with Xcode 26, which the
+      # image carries beside its default; the app is built and run with the
+      # default.
+      - name: idb, to tap the simulator
+        if: matrix.kind == 'sim'
+        run: |
+          default=$(xcode-select -p)
+          xcode26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xcode26" ] || { echo "no Xcode 26 on this image"; ls -d /Applications/Xcode*; exit 1; }
+          sudo xcode-select -s "$xcode26"
+          brew install facebook/fb/idb-companion
+          sudo xcode-select -s "$default"
+          pipx install fb-idb
       - name: Run on the simulator
         if: matrix.kind == 'sim'
         timeout-minutes: 20
@@ -97,6 +109,15 @@ jobs:
         run: |
           grep -nE 'OTHER_LDFLAGS|STRIP|DEAD_CODE' native/baguette_ios/gen/apple/project.yml || true
           scripts/ios-check-ipa.sh examples/counter/_build/prod/ios/counter.ipa
+      - name: Sizes
+        if: success()
+        run: |
+          {
+            echo "### ${{ matrix.kind }}"
+            echo '```'
+            du -sh examples/counter/_build/prod/ios/counter.* test/fixtures/ios_nif_demo/_build/prod/ios/*.app 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

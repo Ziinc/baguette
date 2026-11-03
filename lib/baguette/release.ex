@@ -517,13 +517,14 @@ defmodule Baguette.Release do
   programs fail with `badarg` (see `scripts/build-liberlang-ios.sh`).
 
   Baguette's own NIF is linked in; a release with other NIFs is refused for
-  now. `BAGUETTE_LIBERLANG` must hold `<target>/liberlang.a` and
-  `<target>/driver_tab.c` from `scripts/build-liberlang-ios.sh`, built with
-  the OTP this release was built with, until prebuilt ones are published.
-  Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
+  now. The BEAM is downloaded like the desktop one; a `BAGUETTE_LIBERLANG`
+  of your own must hold `<target>/liberlang.a` and `<target>/driver_tab.c`
+  from `scripts/build-liberlang-ios.sh`, built with the OTP this release
+  was built with. Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
 
   The simulator build is an unsigned debug build, `_build/<env>/ios/<name>.app`.
-  The device build is an optimised `_build/<env>/ios/<name>.ipa`, unsigned
+  The device build is an optimised `_build/<env>/ios/<name>.ipa`
+  (`BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either), unsigned
   unless signing is configured: the Tauri CLI signs it when
   `APPLE_DEVELOPMENT_TEAM` is set, with the identities in the keychain or
   `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`
@@ -604,34 +605,45 @@ defmodule Baguette.Release do
     release
   end
 
-  # The simulator gets a quick unsigned debug build. A device gets an
-  # optimised build, signed by the Tauri CLI when the environment names a
-  # development team, else unsigned.
-  defp ios_build_options(%{simulator: true}), do: ["--debug", "--no-sign"]
+  @doc false
+  # The Tauri CLI's options for `target`. The simulator gets a quick unsigned
+  # debug build, a device an optimised one (`BAGUETTE_IOS_PROFILE` chooses
+  # otherwise), signed by the Tauri CLI when the environment names a
+  # development team.
+  @spec ios_build_options(map(), map()) :: [String.t()]
+  def ios_build_options(target, env \\ System.get_env()) do
+    debug =
+      case env["BAGUETTE_IOS_PROFILE"] do
+        "debug" -> ["--debug"]
+        "release" -> []
+        _ -> if target.simulator, do: ["--debug"], else: []
+      end
 
-  defp ios_build_options(_device) do
     sign =
-      if System.get_env("APPLE_DEVELOPMENT_TEAM") in [nil, ""], do: ["--no-sign"], else: []
+      if target.simulator or env["APPLE_DEVELOPMENT_TEAM"] in [nil, ""],
+        do: ["--no-sign"],
+        else: []
 
     export =
-      case System.get_env("BAGUETTE_IOS_EXPORT_METHOD") do
-        method when method in [nil, ""] -> []
+      case env["BAGUETTE_IOS_EXPORT_METHOD"] do
+        method when method in [nil, ""] or target.simulator -> []
         method -> ["--export-method", method]
       end
 
-    sign ++ export
+    debug ++ sign ++ export
   end
 
   # The app's Rust library carries the BEAM, whose `enif_*` functions only
   # NIFs call (Rustler finds them with `dlsym` in the app's exports):
   # `-export_dynamic` keeps the linker from dead-stripping them, and
   # stripping an archived (release) build keeps global symbols, which would
-  # otherwise empty its exports. The BEAM also needs libc++.
+  # otherwise empty its exports. The BEAM also needs libc++, and reading the
+  # system's DNS servers libresolv.
   defp patch_xcodegen!(path) do
     at = "        ENABLE_BITCODE: false\n"
 
     flags =
-      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++\n" <>
+      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++ -lresolv\n" <>
         "        STRIP_STYLE: non-global\n"
 
     yml = File.read!(path)

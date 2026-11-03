@@ -1,6 +1,7 @@
 defmodule Counter.Store do
   @moduledoc "Holds the count. The view only renders what this returns."
   use GenServer
+  require Logger
 
   def start_link(_opts), do: GenServer.start_link(__MODULE__, 0, name: __MODULE__)
 
@@ -13,5 +14,10 @@ defmodule Counter.Store do
 
   @impl true
   def handle_call(:get, _from, count), do: {:reply, count, count}
-  def handle_call({:add, n}, _from, count), do: {:reply, count + n, count + n}
+
+  def handle_call({:add, n}, _from, count) do
+    # The mobile smoke tests read this from the device log.
+    Logger.info("counter: count=#{count + n}")
+    {:reply, count + n, count + n}
+  end
 end
