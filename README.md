@@ -331,36 +331,37 @@ mix test --only playwright
 
 ## Releasing
 
-Pushing a `v*` tag runs CI and publishes the Firehose builds as a GitHub
-release: `.deb` and AppImage, `.dmg` for Apple silicon and Intel, and a
-signed Android APK and AAB. Running the Release workflow by hand, or
-pushing to the `release-dry-run` branch, is a dry run: it builds all of
-that, the NIFs and the hosts as the run's artifacts, and publishes nothing. Signing comes from repository secrets:
+Pushing a `v*` tag matching `mix.exs`'s version releases Baguette:
 
-- Android: `ANDROID_KEYSTORE` (the keystore, base64), `ANDROID_KEYSTORE_PASSWORD`,
-  `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`. Without them the build is signed
-  with a throwaway key, which Google Play rejects.
-- macOS: Tauri's `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`,
-  `APPLE_SIGNING_IDENTITY`, and `APPLE_ID`, `APPLE_PASSWORD`, `APPLE_TEAM_ID`
-  to notarize. Without them the app is unsigned.
+1. CI, the Android build and the precompiled NIF and host builds run.
+2. A GitHub release publishes what apps download instead of compiling Rust:
+   - Baguette's NIF, for macOS (Apple silicon, Intel), Linux (x86_64,
+     arm64) and Windows (`nif` workflow).
+   - The default host (gpui-kit's components, no host features), for macOS,
+     Linux and Windows on each OTP version (`host` workflow). A release with
+     other components or features, `BAGUETTE_BUILD_HOST=1`, or a version
+     without pinned checksums builds it with Cargo.
+   - The Firehose demo: `.deb` and AppImage, `.dmg` for Apple silicon and
+     Intel, and an Android APK. These are unsigned samples.
+3. `scripts/release-checksums.sh` pins the release's host and NIF checksums,
+   and the package goes to hex with them (`mix hex.publish`, with the
+   `HEX_API_KEY` repository secret).
+4. A pull request pins the same checksums on `main`.
 
-The release also carries what apps download instead of compiling Rust:
+Before anything builds, the tag is checked against `mix.exs` and the
+`HEX_API_KEY` secret against being empty. Running the Release workflow by
+hand, or pushing to the `release-dry-run` branch, is a dry run: it builds
+all of it as the run's artifacts and publishes nothing.
 
-- Baguette's NIF, for macOS (Apple silicon, Intel), Linux (x86_64, arm64)
-  and Windows (`nif` workflow).
-- The default host (gpui-kit's components, no host features), for macOS and
-  Linux on each OTP version (`host` workflow). A release with other
-  components or features, `BAGUETTE_BUILD_HOST=1`, or a version without
-  pinned checksums builds it with Cargo.
+Baguette signs nothing itself: it is a library, and an app signs its own
+builds. `Baguette.Release` passes the signing settings through:
 
-After the tag's release is published, pin both sets of checksums, which the
-hex package ships, then publish:
-
-```sh
-# priv/host.sha256: the lines from the host workflow's summary
-mix rustler_precompiled.download Baguette.Native --all --print
-mix hex.publish
-```
+- Android: `BAGUETTE_ANDROID_KEYSTORE` (a keystore file),
+  `BAGUETTE_ANDROID_KEYSTORE_PASSWORD`, `BAGUETTE_ANDROID_KEY_ALIAS` and
+  `BAGUETTE_ANDROID_KEY_PASSWORD` sign the APK and AAB.
+- macOS: Tauri's `APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD` and
+  `APPLE_SIGNING_IDENTITY` sign the bundle, and `APPLE_ID`, `APPLE_PASSWORD`
+  and `APPLE_TEAM_ID` notarize it.
 
 Checkouts and git dependencies have no NIF checksums and build the NIF from
 source, as does setting `BAGUETTE_BUILD_NIF=1`.
