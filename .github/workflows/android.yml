@@ -53,8 +53,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-${{ runner.arch }}-
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -144,8 +144,8 @@ jobs:
       - uses: actions/cache@v4
         with:
           path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
+          key: npm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('native/baguette_host/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-${{ runner.arch }}-
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
