@@ -5,6 +5,7 @@ on:
     branches: [main]
   pull_request:
   workflow_call:
+  workflow_dispatch:
 
 env:
   OTP_TAG: OTP-29.1.2
@@ -24,6 +25,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mix deps.get
       - run: mix format --check-formatted
       - run: mix compile --warnings-as-errors
@@ -47,6 +50,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: System dependencies
         run: |
           sudo apt-get update
@@ -57,18 +62,31 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo clippy -p baguette_host --all-targets --features playwright -- -D warnings
-      - run: cargo test --workspace
+      # baguette_ios is the host bundled as a static library for Xcode: no
+      # tests, and building it here only spends the runner's disk.
+      - run: cargo test --workspace --exclude baguette_ios
 
   e2e-linux:
     # The counter as a real `mix release`: the host links liberlang built from
-    # the same OTP the release ships, so both share one ERTS.
+    # the same OTP the release ships, so both share one ERTS. Like the other
+    # platforms' example runs, pull requests skip it: merges to main, release
+    # tags and manual runs run it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
+      # The runner's preinstalled toolchains leave too little disk for the
+      # host's release build.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
+          df -h /
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # npm's download cache: Tauri's CLI, from `npm install` (Android) and
       # `npx @tauri-apps/cli` (desktop bundles).
       - uses: actions/cache@v4
@@ -166,6 +184,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # npm's download cache: Tauri's CLI, from `npm install` (Android) and
       # `npx @tauri-apps/cli` (desktop bundles).
       - uses: actions/cache@v4

@@ -40,6 +40,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: System dependencies
         if: runner.os == 'Linux'
         run: |

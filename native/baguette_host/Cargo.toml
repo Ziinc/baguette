@@ -6,12 +6,15 @@ license = "MIT"
 publish = false
 
 [lib]
-# `cdylib` is what Android loads; `rlib` is what the desktop executable uses.
+# `cdylib` is what Android loads; `rlib` is what the desktop executable and
+# iOS (`native/baguette_ios`, a static library Xcode links) use.
 name = "baguette_host_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+# iOS: compiles the BEAM's static NIF table (`build.rs`).
+cc = "1"
 
 [features]
 default = ["components-gpui-kit"]
@@ -57,4 +60,12 @@ android_logger = "0.15"
 flate2 = "1"
 libc = "0.2"
 log = "0.4"
+tar = "0.4"
+
+# iOS links every NIF into the app: Baguette's is a dependency, listed in the
+# BEAM's static NIF table (`build.rs`). The release is embedded and unpacked
+# as on Android.
+[target.'cfg(target_os = "ios")'.dependencies]
+baguette_nif = { path = "../baguette_nif" }
+flate2 = "1"
 tar = "0.4"

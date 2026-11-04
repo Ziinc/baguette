@@ -1,0 +1,152 @@
+name: iOS
+
+# The counter example for iOS. On the simulator it is run: the embedded BEAM
+# boots and Elixir's first frame is drawn. For devices it is built as an
+# unsigned .ipa (apps sign their own; see the README) and checked, not run.
+# macOS minutes are dear, so this runs on pushes to main and on demand, not on
+# pull requests.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# A newer push supersedes a run still going on the same branch.
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  OTP_TAG: OTP-29.1.2
+  ELIXIR_VERSION: 1.20.4
+  LANG: C.UTF-8
+
+jobs:
+  counter:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { kind: sim, target: aarch64-apple-ios-sim }
+          - { kind: device, target: aarch64-apple-ios }
+    name: ${{ matrix.kind }}
+    runs-on: macos-15
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ios-${{ matrix.kind }}
+          workspaces: native
+          # Only main writes the cache; branches read it, so they never evict it.
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: actions/cache@v4
+        with:
+          path: ~/.npm
+          key: npm-${{ runner.os }}-${{ hashFiles('native/baguette_ios/package-lock.json') }}
+          restore-keys: npm-${{ runner.os }}-
+      # The build machine's OTP, which builds the release and cross-builds
+      # OTP for iOS. Same cache as ci.yml's macOS job.
+      - uses: actions/cache@v4
+        id: liberlang
+        with:
+          path: |
+            ~/liberlang/liberlang.a
+            ~/liberlang/otp
+          key: liberlang-macos-aarch64-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang.sh') }}
+      - name: Build OTP
+        if: steps.liberlang.outputs.cache-hit != 'true'
+        run: brew install openssl@3 && scripts/build-liberlang.sh "$OTP_TAG" ~/liberlang && rm -rf ~/liberlang/src
+      - name: Elixir
+        run: |
+          curl -fsSL -o /tmp/elixir.zip \
+            "https://github.com/elixir-lang/elixir/releases/download/v$ELIXIR_VERSION/elixir-otp-29.zip"
+          mkdir -p ~/elixir && unzip -q /tmp/elixir.zip -d ~/elixir
+          echo "$HOME/liberlang/otp/bin" >> "$GITHUB_PATH"
+          echo "$HOME/elixir/bin" >> "$GITHUB_PATH"
+      - uses: actions/cache@v4
+        id: liberlang-ios
+        with:
+          path: ~/liberlang-ios/${{ matrix.target }}
+          key: liberlang-ios-${{ matrix.kind }}-${{ env.OTP_TAG }}-${{ hashFiles('scripts/build-liberlang-ios.sh') }}
+      - name: Cross-build OTP for iOS
+        if: steps.liberlang-ios.outputs.cache-hit != 'true'
+        run: |
+          scripts/build-liberlang-ios.sh "$OTP_TAG" ${{ matrix.kind }} ~/liberlang-ios-build
+          mkdir -p ~/liberlang-ios/${{ matrix.target }}
+          cp ~/liberlang-ios-build/{liberlang.a,driver_tab.c} ~/liberlang-ios/${{ matrix.target }}/
+      - run: command -v xcodegen >/dev/null || brew install xcodegen
+      - name: Build the counter app
+        working-directory: examples/counter
+        env:
+          BAGUETTE_IOS: ${{ matrix.kind }}
+          MIX_ENV: prod
+        run: |
+          export BAGUETTE_LIBERLANG=$HOME/liberlang-ios
+          mix local.hex --force && mix local.rebar --force
+          mix deps.get
+          mix release --overwrite
+      # idb-companion has no bottle and compiles only with Xcode 26, which the
+      # image carries beside its default; the app is built and run with the
+      # default.
+      - name: idb, to tap the simulator
+        if: matrix.kind == 'sim'
+        run: |
+          default=$(xcode-select -p)
+          xcode26=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+          [ -n "$xcode26" ] || { echo "no Xcode 26 on this image"; ls -d /Applications/Xcode*; exit 1; }
+          sudo xcode-select -s "$xcode26"
+          brew install facebook/fb/idb-companion
+          sudo xcode-select -s "$default"
+          pipx install fb-idb
+      - name: Run on the simulator
+        if: matrix.kind == 'sim'
+        timeout-minutes: 20
+        run: scripts/ios-smoke.sh examples/counter/_build/prod/ios/counter.app dev.baguette.counter ios-smoke
+      # Dependencies' NIFs (Rustler and elixir_make), built for iOS and linked
+      # into the app.
+      - name: Build the NIF fixture app
+        if: matrix.kind == 'sim'
+        working-directory: test/fixtures/ios_nif_demo
+        env:
+          BAGUETTE_IOS: sim
+          MIX_ENV: prod
+        run: |
+          export BAGUETTE_LIBERLANG=$HOME/liberlang-ios
+          mix deps.get
+          mix release --overwrite
+      - name: Run the NIF fixture app on the simulator
+        if: matrix.kind == 'sim'
+        timeout-minutes: 15
+        env:
+          COUNTER_TAPS: "0"
+          EXPECT: "ios_nif_demo: add=5 mul=12"
+        run: |
+          scripts/ios-smoke.sh test/fixtures/ios_nif_demo/_build/prod/ios/ios_nif_demo.app \
+            dev.baguette.iosnifdemo ios-smoke-nifs
+      - name: Check the device build
+        if: matrix.kind == 'device'
+        run: |
+          grep -nE 'OTHER_LDFLAGS|STRIP|DEAD_CODE' native/baguette_ios/gen/apple/project.yml || true
+          scripts/ios-check-ipa.sh examples/counter/_build/prod/ios/counter.ipa
+      - name: Sizes
+        if: success()
+        run: |
+          {
+            echo "### ${{ matrix.kind }}"
+            echo '```'
+            du -sh examples/counter/_build/prod/ios/counter.* test/fixtures/ios_nif_demo/_build/prod/ios/*.app 2>/dev/null || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ios-${{ matrix.kind }}
+          path: |
+            ios-smoke
+            ios-smoke-nifs
+            examples/counter/_build/prod/ios/counter.ipa
+          if-no-files-found: ignore

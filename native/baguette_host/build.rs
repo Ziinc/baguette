@@ -16,7 +16,6 @@ fn main() {
     // for desktop, or `<target>/liberlang.so` for Android
     // (`scripts/build-liberlang-android.sh`). Without it the host still
     // builds, and shows a notice in place of the app.
-    println!("cargo::rerun-if-env-changed=BAGUETTE_LIBERLANG");
     println!("cargo::rustc-check-cfg=cfg(baguette_beam)");
     println!("cargo::rustc-check-cfg=cfg(baguette_embedded_release)");
     embed_release();
@@ -27,7 +26,7 @@ fn main() {
         println!("cargo::rustc-cfg=baguette_beam");
         return;
     }
-    let Some(dir) = env::var_os("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
+    let Some(dir) = baguette_env("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
     let target = env::var("TARGET").unwrap();
@@ -58,7 +57,7 @@ fn main() {
                         println!("cargo::rustc-link-lib={lib}");
                     }
                 }
-                Ok("macos") | Ok("ios") => {
+                Ok("macos") => {
                     // As on Linux: ld64 dead-strips the `enif_*` functions
                     // nothing in the host calls unless every global is kept.
                     println!("cargo::rustc-link-arg-bins=-Wl,-export_dynamic");
@@ -66,17 +65,154 @@ fn main() {
                         println!("cargo::rustc-link-lib={lib}");
                     }
                 }
+                // Xcode links the app (with `-export_dynamic`, which
+                // `Baguette.Release.ios/1` adds), so only the BEAM's glue is
+                // built here.
+                Ok("ios") => ios_glue(&dir),
                 _ => {}
             }
         }
     }
 }
 
+/// A Baguette variable, or the same with a `TAURI_` prefix: Tauri's iOS build
+/// (Cargo run from Xcode) passes on only `TAURI_*`, `CARGO_*` and a few
+/// others, so `Baguette.Release.ios/1` sets those.
+fn baguette_env(name: &str) -> Option<std::ffi::OsString> {
+    let tauri = format!("TAURI_{name}");
+    println!("cargo::rerun-if-env-changed={name}");
+    println!("cargo::rerun-if-env-changed={tauri}");
+    env::var_os(name).or_else(|| env::var_os(tauri))
+}
+
+/// iOS loads no code but the app's, so every NIF is linked into it and listed
+/// in ERTS's static NIF table, `erts_static_nif_tab`. `liberlang.a` leaves
+/// that table (`driver_tab.o`) out and ships OTP's generated `driver_tab.c`
+/// beside it; this compiles that table with Baguette's NIF added (a
+/// dependency on iOS), and every `lib<name>.a` in `BAGUETTE_IOS_NIFS` (the
+/// release's other NIFs, from `Baguette.Release.IosNifs`), which it links,
+/// without OTP's headers.
+///
+/// The same file makes `fork()` fail, as the device sandbox does on a phone,
+/// so the simulator boots the BEAM the way a phone does: ERTS forks
+/// `erl_child_setup` at boot, but built for iOS it never starts an OS
+/// process, so it never uses it. It also reads the system's DNS servers
+/// (`baguette_nameservers`, for `Baguette.DNS`): iOS has no
+/// `/etc/resolv.conf` for the BEAM's resolver, nor runs its `inet_gethost`.
+fn ios_glue(liberlang: &std::path::Path) {
+    let source = liberlang.join("driver_tab.c");
+    println!("cargo::rerun-if-changed={}", source.display());
+    let table = std::fs::read_to_string(&source)
+        .unwrap_or_else(|e| panic!("{}: {e} (from build-liberlang-ios.sh)", source.display()));
+    let mut nifs = vec!["baguette_nif".to_string()];
+    if let Some(dir) = baguette_env("BAGUETTE_IOS_NIFS").map(PathBuf::from) {
+        println!("cargo::rerun-if-changed={}", dir.display());
+        println!("cargo::rustc-link-search=native={}", dir.display());
+        let mut archives: Vec<String> = std::fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let name = entry.file_name().into_string().ok()?;
+                Some(name.strip_prefix("lib")?.strip_suffix(".a")?.to_owned())
+            })
+            .collect();
+        archives.sort();
+        for name in archives {
+            println!("cargo::rustc-link-lib=static={name}");
+            nifs.push(name);
+        }
+    }
+    let nifs: Vec<&str> = nifs.iter().map(String::as_str).collect();
+    let out = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("baguette_ios_erts.c");
+    std::fs::write(&out, ios_driver_tab(&table, &nifs)).unwrap();
+    cc::Build::new().file(&out).compile("baguette_ios_erts");
+    // `res_ninit` and friends, for `baguette_nameservers`.
+    println!("cargo::rustc-link-lib=resolv");
+}
+
+/// OTP's `driver_tab.c` with `nifs` added to its static NIF table and its
+/// ERTS headers replaced by the few definitions it uses.
+fn ios_driver_tab(table: &str, nifs: &[&str]) -> String {
+    let body: String = table
+        .lines()
+        .filter(|line| !line.trim_start().starts_with('#'))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    let end = "    {NULL}\n};\n";
+    let at = body
+        .rfind(end)
+        .expect("driver_tab.c has no erts_static_nif_tab");
+    let (head, tail) = body.split_at(at);
+    let entries: String = nifs
+        .iter()
+        .map(|n| format!("    {{&{n}_nif_init, 1, THE_NON_VALUE, NULL}},\n"))
+        .collect();
+    let prototypes: String = nifs
+        .iter()
+        .map(|n| format!("void *{n}_nif_init(void);\n"))
+        .collect();
+    format!(
+        r#"/* Generated by baguette_host's build.rs from OTP's driver_tab.c. */
+#include <arpa/inet.h>
+#include <errno.h>
+#include <netinet/in.h>
+#include <resolv.h>
+#include <stddef.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/types.h>
+
+typedef struct erl_drv_entry ErlDrvEntry;
+typedef struct enif_entry_t ErlNifEntry;
+typedef uintptr_t Eterm;
+#define THE_NON_VALUE ((Eterm)0)
+typedef struct {{ ErlDrvEntry *de; int taint; }} ErtsStaticDriver;
+typedef struct {{
+    void *(*const nif_init)(void);
+    const int taint;
+    Eterm mod_atom;
+    ErlNifEntry *entry;
+}} ErtsStaticNif;
+
+pid_t fork(void) {{
+    fprintf(stderr, "baguette: fork() refused\n");
+    errno = EPERM;
+    return -1;
+}}
+
+/* The system's DNS servers, comma-separated, into `out`; how many. */
+int baguette_nameservers(char *out, size_t len) {{
+    struct __res_state state;
+    union res_sockaddr_union servers[MAXNS];
+    int count, i;
+    size_t used = 0;
+    memset(&state, 0, sizeof state);
+    out[0] = 0;
+    if (res_ninit(&state) != 0) return -1;
+    count = res_getservers(&state, servers, MAXNS);
+    for (i = 0; i < count; i++) {{
+        char ip[INET6_ADDRSTRLEN] = "";
+        if (servers[i].sin.sin_family == AF_INET)
+            inet_ntop(AF_INET, &servers[i].sin.sin_addr, ip, sizeof ip);
+        else if (servers[i].sin6.sin6_family == AF_INET6)
+            inet_ntop(AF_INET6, &servers[i].sin6.sin6_addr, ip, sizeof ip);
+        if (ip[0] && used + strlen(ip) + 2 < len)
+            used += (size_t)snprintf(out + used, len - used, "%s%s", used ? "," : "", ip);
+    }}
+    res_ndestroy(&state);
+    return count;
+}}
+
+{prototypes}{head}{entries}{tail}"#
+    )
+}
+
 /// On mobile the release ships inside the library: `BAGUETTE_RELEASE_ARCHIVE`
 /// names a `.tar.gz` of it, which `beam::android` unpacks on first launch.
 fn embed_release() {
-    println!("cargo::rerun-if-env-changed=BAGUETTE_RELEASE_ARCHIVE");
-    let Some(archive) = env::var_os("BAGUETTE_RELEASE_ARCHIVE").map(PathBuf::from) else {
+    let Some(archive) = baguette_env("BAGUETTE_RELEASE_ARCHIVE").map(PathBuf::from) else {
         println!("cargo::rustc-env=BAGUETTE_RELEASE_HASH=none");
         return;
     };

@@ -38,10 +38,11 @@ defmodule Baguette.Release do
   `scripts/build-liberlang.sh`) to skip the download.
 
   With `BAGUETTE_ANDROID` set, `package/1` and `bundle/1` step aside and
-  `android/1` builds an APK instead.
+  `android/1` builds an APK instead; with `BAGUETTE_IOS`, `ios/1` builds an
+  iOS app.
   """
 
-  alias Baguette.Release.{AndroidNifs, Slim}
+  alias Baguette.Release.{AndroidNifs, IosNifs, Slim}
 
   # Baguette's GitHub releases: prebuilt BEAMs, precompiled hosts and NIFs.
   @liberlang_releases "https://github.com/ziinc/baguette/releases/download"
@@ -55,6 +56,11 @@ defmodule Baguette.Release do
   @android_abis %{
     "x86_64" => %{triple: "x86_64-linux-android", jni: "x86_64", tauri: "x86_64"},
     "arm64" => %{triple: "aarch64-linux-android", jni: "arm64-v8a", tauri: "aarch64"}
+  }
+
+  @ios_targets %{
+    "sim" => %{triple: "aarch64-apple-ios-sim", tauri: "aarch64-sim", simulator: true},
+    "device" => %{triple: "aarch64-apple-ios", tauri: "aarch64", simulator: false}
   }
 
   @doc "The host's Cargo features: the release option plus `BAGUETTE_HOST_FEATURES`."
@@ -147,7 +153,7 @@ defmodule Baguette.Release do
   @spec package(Mix.Release.t()) :: Mix.Release.t()
   def package(%Mix.Release{} = release) do
     release = Slim.run(release)
-    if System.get_env("BAGUETTE_ANDROID"), do: release, else: package_desktop(release)
+    if mobile?(), do: release, else: package_desktop(release)
   end
 
   defp package_desktop(release) do
@@ -285,7 +291,7 @@ defmodule Baguette.Release do
 
     bundles =
       cond do
-        System.get_env("BAGUETTE_ANDROID") -> []
+        mobile?() -> []
         env = System.get_env("BAGUETTE_BUNDLES") -> String.split(env, ",", trim: true)
         true -> options[:bundles] || []
       end
@@ -396,7 +402,7 @@ defmodule Baguette.Release do
         Map.get(@android_abis, abi) || Mix.raise("unknown Android ABI #{abi} (x86_64 or arm64)")
       end
 
-    liberlang = android_liberlang!(Enum.map(abis, & &1.triple))
+    liberlang = mobile_liberlang!(Enum.map(abis, & &1.triple))
 
     # The release without the build machine's ERTS: the BEAM is liberlang.so.
     archive = Path.join(out, "release.tar.gz")
@@ -496,6 +502,174 @@ defmodule Baguette.Release do
 
     release
   end
+
+  @doc """
+  A `mix release` step that builds an iOS app when `BAGUETTE_IOS` names
+  where it runs: `sim` (the simulator on an Apple silicon Mac) or `device`.
+
+      BAGUETTE_IOS=sim MIX_ENV=prod mix release
+
+  As on Android, the release (its `lib` and `releases`, not the build
+  machine's ERTS) is embedded in the app and unpacked on first launch. iOS
+  loads no code but the app's own, so the BEAM (`liberlang.a`) and every NIF
+  are linked into it; the release's NIF files are left empty. It runs no
+  other programs either: `System.cmd/3`, `:os.cmd/1` and ports to external
+  programs fail with `badarg` (see `scripts/build-liberlang-ios.sh`).
+
+  Every NIF is linked in: Baguette's own, and each one the release's
+  dependencies carry, built again for iOS as a static archive; see
+  `Baguette.Release.IosNifs`, and its `ios_nifs` option. The BEAM is downloaded like the desktop one; a `BAGUETTE_LIBERLANG`
+  of your own must hold `<target>/liberlang.a` and `<target>/driver_tab.c`
+  from `scripts/build-liberlang-ios.sh`, built with the OTP this release
+  was built with. Needs Xcode, `xcodegen`, Rust's iOS targets and Node.
+
+  The simulator build is an unsigned debug build, `_build/<env>/ios/<name>.app`.
+  The device build is an optimised `_build/<env>/ios/<name>.ipa`
+  (`BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either), unsigned
+  unless signing is configured: the Tauri CLI signs it when
+  `APPLE_DEVELOPMENT_TEAM` is set, with the identities in the keychain or
+  `IOS_CERTIFICATE`, `IOS_CERTIFICATE_PASSWORD` and `IOS_MOBILE_PROVISION`
+  (and App Store Connect's `APPLE_API_KEY`, `APPLE_API_ISSUER` and
+  `APPLE_API_KEY_PATH` to manage profiles). `BAGUETTE_IOS_EXPORT_METHOD`
+  (`app-store-connect`, `release-testing` or `debugging`) chooses how the
+  signed archive is exported. The README's iOS section has the details.
+  """
+  @spec ios(Mix.Release.t()) :: Mix.Release.t()
+  def ios(%Mix.Release{} = release) do
+    case System.get_env("BAGUETTE_IOS") do
+      nil ->
+        release
+
+      kind ->
+        ios(release, Map.get(@ios_targets, kind) || Mix.raise("BAGUETTE_IOS is sim or device"))
+    end
+  end
+
+  defp ios(release, target) do
+    options = release.options[:baguette] || []
+    name = Atom.to_string(release.name)
+    project = Path.join([baguette_root(), "native", "baguette_ios"])
+    out = Path.join(Mix.Project.build_path(), "ios")
+    File.mkdir_p!(out)
+
+    liberlang = mobile_liberlang!([target.triple])
+
+    # Every other NIF the release carries, built as a static archive the host
+    # links (see `IosNifs`).
+    nifs = Path.join([out, "nifs", target.triple, "link"])
+    File.rm_rf!(nifs)
+
+    release.path
+    |> Path.join("lib")
+    |> AndroidNifs.find()
+    |> IosNifs.plan(target.triple,
+      deps: nif_sources(),
+      sdk: if(target.simulator, do: "iphonesimulator", else: "iphoneos"),
+      cc: Path.join(baguette_root(), "priv/ios/nif-cc"),
+      erts_include: Path.join([:code.root_dir(), "erts-#{release.erts_version}", "include"]),
+      out: Path.join(out, "nifs"),
+      overrides: options[:ios_nifs] || [],
+      skip: ["baguette"]
+    )
+    |> IosNifs.build!(nifs, &run!/4)
+
+    archive = Path.join(out, "release.tar.gz")
+    :ok = :erl_tar.create(String.to_charlist(archive), archive_files(release.path), [:compressed])
+
+    config = Path.join(out, "tauri.ios.json")
+
+    File.write!(
+      config,
+      :json.encode(%{
+        productName: get_in(options, [:window, :title]) || name,
+        version: release.version,
+        identifier: options[:identifier] || "dev.baguette.#{name}"
+      })
+    )
+
+    # Xcode runs Cargo through the Tauri CLI, which passes on only `TAURI_*`
+    # and `CARGO_*` variables; the host's build.rs reads both spellings.
+    env = [
+      {"TAURI_BAGUETTE_LIBERLANG", liberlang},
+      {"TAURI_BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"TAURI_BAGUETTE_IOS_NIFS", nifs},
+      {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "ios"])}
+    ]
+
+    run!(project, "npm", ["install", "--no-audit", "--no-fund"], env)
+    File.rm_rf!(Path.join(project, "gen/apple"))
+    run!(project, "npm", ["run", "tauri", "--", "ios", "init", "--ci", "--config", config], env)
+    patch_xcodegen!(Path.join(project, "gen/apple/project.yml"))
+    # `ios init` generated the Xcode project before the patch; again with it.
+    run!(Path.join(project, "gen/apple"), "xcodegen", ["generate"], [])
+
+    run!(
+      project,
+      "npm",
+      ["run", "tauri", "--", "ios", "build", "--ci", "--config", config, "--target", target.tauri] ++
+        ios_build_options(target) ++ tauri_features(release.options),
+      env
+    )
+
+    ext = if target.simulator, do: "app", else: "ipa"
+    [built | _] = Path.wildcard(Path.join(project, "gen/apple/build/**/*.#{ext}"))
+    product = Path.join(out, "#{name}.#{ext}")
+    File.rm_rf!(product)
+    File.cp_r!(built, product)
+    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(product)])
+    release
+  end
+
+  @doc false
+  # The Tauri CLI's options for `target`. The simulator gets a quick unsigned
+  # debug build, a device an optimised one (`BAGUETTE_IOS_PROFILE` chooses
+  # otherwise), signed by the Tauri CLI when the environment names a
+  # development team.
+  @spec ios_build_options(map(), map()) :: [String.t()]
+  def ios_build_options(target, env \\ System.get_env()) do
+    debug =
+      case env["BAGUETTE_IOS_PROFILE"] do
+        "debug" -> ["--debug"]
+        "release" -> []
+        _ -> if target.simulator, do: ["--debug"], else: []
+      end
+
+    sign =
+      if target.simulator or env["APPLE_DEVELOPMENT_TEAM"] in [nil, ""],
+        do: ["--no-sign"],
+        else: []
+
+    export =
+      case env["BAGUETTE_IOS_EXPORT_METHOD"] do
+        method when method in [nil, ""] or target.simulator -> []
+        method -> ["--export-method", method]
+      end
+
+    debug ++ sign ++ export
+  end
+
+  # The app's Rust library carries the BEAM, whose `enif_*` functions only
+  # NIFs call (Rustler finds them with `dlsym` in the app's exports):
+  # `-export_dynamic` keeps the linker from dead-stripping them, and
+  # stripping an archived (release) build keeps global symbols, which would
+  # otherwise empty its exports. The BEAM also needs libc++, and reading the
+  # system's DNS servers libresolv.
+  defp patch_xcodegen!(path) do
+    at = "        ENABLE_BITCODE: false\n"
+
+    flags =
+      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++ -lresolv\n" <>
+        "        STRIP_STYLE: non-global\n"
+
+    yml = File.read!(path)
+
+    if not String.contains?(yml, at),
+      do: Mix.raise("#{path}: no build settings to add the linker flags to")
+
+    File.write!(path, String.replace(yml, at, at <> flags, global: false))
+  end
+
+  defp mobile?, do: System.get_env("BAGUETTE_ANDROID") || System.get_env("BAGUETTE_IOS")
 
   # The release's `lib` and `releases`, with each NIF emptied: the build
   # machine's NIFs are of no use on Android, where the host links each one to
@@ -610,7 +784,7 @@ defmodule Baguette.Release do
     end
   end
 
-  defp android_liberlang!(triples) do
+  defp mobile_liberlang!(triples) do
     case System.get_env("BAGUETTE_LIBERLANG") do
       dir when dir not in [nil, ""] -> dir
       _ -> download_liberlang!(triples)

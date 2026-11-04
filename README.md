@@ -8,8 +8,9 @@ components and Phoenix's `phx-*` bindings. Apps write Rust only for
 platform-specific NIFs.
 
 > **Status:** early. Linux desktop works end to end and macOS is built and
-> booted in CI. Android builds its host from source; Windows and iOS are not
-> supported yet.
+> booted in CI. Android and iOS build their host from source (iOS: the
+> simulator is run in CI, device builds are built); Windows is not supported
+> yet.
 
 ![A Broadway pipeline visualised live](https://github.com/ziinc/baguette/raw/main/docs/firehose.gif)
 
@@ -192,6 +193,97 @@ PlaywrightEx.Frame.click(page.main_frame.guid,
 Start the release with `GPUI_PLAYWRIGHT=9333` for that; the server only
 listens when it is set.
 
+## iOS
+
+`Baguette.Release.ios/1` builds an iOS app from a release. Add it to the
+release's steps and set `BAGUETTE_IOS`:
+
+```elixir
+releases: [
+  my_app: [
+    steps: [:assemble, &Baguette.Release.package/1, &Baguette.Release.ios/1],
+    baguette: [identifier: "com.example.my_app"]
+  ]
+]
+```
+
+```sh
+BAGUETTE_IOS=sim MIX_ENV=prod mix release     # _build/prod/ios/my_app.app
+BAGUETTE_IOS=device MIX_ENV=prod mix release  # _build/prod/ios/my_app.ipa
+```
+
+It needs a Mac with Xcode, `xcodegen` (`brew install xcodegen`), Node, and
+Rust's target for the build (`rustup target add aarch64-apple-ios-sim
+aarch64-apple-ios`). `mix release` downloads the prebuilt iOS BEAM for your
+OTP version, as on desktop. To use your own, build it with the OTP you build
+the release with and point `BAGUETTE_LIBERLANG` at it:
+
+```sh
+scripts/build-liberlang-ios.sh OTP-29.1.2 sim ~/liberlang-ios-build
+mkdir -p ~/liberlang-ios/aarch64-apple-ios-sim
+cp ~/liberlang-ios-build/{liberlang.a,driver_tab.c} ~/liberlang-ios/aarch64-apple-ios-sim/
+export BAGUETTE_LIBERLANG=~/liberlang-ios
+```
+
+(`device` and `aarch64-apple-ios` for a device build.) The simulator build is
+an unsigned debug app for an Apple silicon Mac's simulator:
+`xcrun simctl install booted _build/prod/ios/my_app.app`. The device build is
+optimised; `BAGUETTE_IOS_PROFILE=debug` or `release` chooses for either.
+
+### Signing
+
+The device build is optimised and **unsigned** unless you configure signing.
+Baguette does no signing of its own: it runs the Tauri CLI
+(`tauri ios build`), which signs when `APPLE_DEVELOPMENT_TEAM` is set, using
+these variables from the environment `mix release` runs in:
+
+| Variable | What it is |
+| --- | --- |
+| `APPLE_DEVELOPMENT_TEAM` | Your Apple team ID. Setting it turns signing on. |
+| `IOS_CERTIFICATE` | The signing certificate and key, a `.p12` in base64. Without it, Xcode uses the identities in your keychain. |
+| `IOS_CERTIFICATE_PASSWORD` | The `.p12`'s password. |
+| `IOS_MOBILE_PROVISION` | The provisioning profile, base64. Its app ID must match the release's `identifier`. |
+| `APPLE_API_KEY`, `APPLE_API_ISSUER`, `APPLE_API_KEY_PATH` | Optional: an App Store Connect API key, so Xcode can create or update profiles itself. |
+| `BAGUETTE_IOS_EXPORT_METHOD` | Optional: `app-store-connect` (App Store and TestFlight), `release-testing` (ad hoc) or `debugging` (development). |
+
+On CI, keep these as secrets and pass them to the step that runs
+`mix release`:
+
+```yaml
+- run: mix release --overwrite
+  env:
+    BAGUETTE_IOS: device
+    MIX_ENV: prod
+    APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+    IOS_CERTIFICATE: ${{ secrets.IOS_CERTIFICATE }}
+    IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_CERTIFICATE_PASSWORD }}
+    IOS_MOBILE_PROVISION: ${{ secrets.IOS_MOBILE_PROVISION }}
+    BAGUETTE_IOS_EXPORT_METHOD: app-store-connect
+```
+
+An unsigned `.ipa` can also be signed later by tools that re-sign (Xcode's
+Organizer, `fastlane resign`).
+
+### What differs on iOS
+
+iOS runs only code linked into the app, and starts no other programs:
+
+- The BEAM (`liberlang.a`) and every NIF are linked into the app. Each NIF
+  your dependencies carry is built again for iOS as a static archive: a
+  Rustler crate (Rustler 0.37 or later) with `cargo rustc --crate-type
+  staticlib`, an `elixir_make` NIF with its own Makefile and a compiler
+  wrapper that makes the link static. Skip or tune one with
+  `baguette: [ios_nifs: [dep: false]]` or `[dep: [args: [...], env: [...]]]`
+  (`Baguette.Release.IosNifs`).
+- `System.cmd/3`, `:os.cmd/1` and ports to external programs raise
+  `badarg`. The BEAM is built with OTP's iOS settings (no JIT, static NIFs)
+  and needs no patches; see `scripts/build-liberlang-ios.sh`.
+- No distribution (`epmd`). Hostname lookups use the hosts file and
+  Erlang's own DNS resolver (`[:file, :dns]`) with the system's DNS servers,
+  which Baguette sets up at startup.
+- Output from the BEAM goes to the device log
+  (`xcrun simctl spawn booted log stream --predicate 'process == "my_app"'`).
+
 ## How it fits together
 
 - `native/baguette_host`: the native host, built on
@@ -218,7 +310,8 @@ gpui-kit, and the plan for the rest:
 3. Window controls and displays.
 4. gpui-kit components: dialog, popover, select, tabs, table, switch, ….
 
-Platforms: a precompiled Android host, then Windows and iOS.
+Platforms: a precompiled Android host, prebuilt iOS BEAMs and dependency
+NIFs on iOS, then Windows.
 
 ## Development
 
