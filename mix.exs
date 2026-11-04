@@ -30,7 +30,11 @@ defmodule Baguette.MixProject do
     [
       main: "readme",
       source_ref: "v#{@version}",
-      extras: ["README.md", "docs/native-api.md": [title: "Native API"]],
+      extras: [
+        "README.md",
+        "docs/native-api.md": [title: "Native API"],
+        "docs/releasing-apps.md": [title: "Releasing your app"]
+      ],
       groups_for_modules: [
         Views: [Baguette.View, Baguette.Components, Baguette.Kit, Baguette.Theme],
         Platform: [Baguette.App, Baguette.Clipboard, Baguette.Menu, Baguette.Window],

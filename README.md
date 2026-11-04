@@ -284,6 +284,11 @@ iOS runs only code linked into the app, and starts no other programs:
 - Output from the BEAM goes to the device log
   (`xcrun simctl spawn booted log stream --predicate 'process == "my_app"'`).
 
+## Shipping your app
+
+[Releasing your app](docs/releasing-apps.md) lists the signing variables for
+each platform and has a GitHub Actions release workflow to copy.
+
 ## How it fits together
 
 - `native/baguette_host`: the native host, built on
