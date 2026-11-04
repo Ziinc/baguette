@@ -94,6 +94,22 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+      # The emulator and its system image, which android-emulator-runner
+      # otherwise downloads from Google on every run (and Google has served
+      # corrupt archives: "Error on ZipFile unknown archive"). sdkmanager skips
+      # what is installed and current. The key changes monthly, so a newer
+      # emulator is fetched once and cached; a cache is saved only when the
+      # job succeeds, so a bad download is never kept.
+      - name: Month
+        id: month
+        run: echo "month=$(date -u +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.ANDROID_HOME }}/emulator
+            ${{ env.ANDROID_HOME }}/system-images/android-34/google_apis/x86_64
+          key: android-emulator-34-google_apis-x86_64-${{ steps.month.outputs.month }}
+          restore-keys: android-emulator-34-google_apis-x86_64-
       - name: Run on the emulator
         timeout-minutes: 25
         uses: reactivecircus/android-emulator-runner@v2
