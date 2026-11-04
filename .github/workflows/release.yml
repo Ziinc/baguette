@@ -1,33 +1,63 @@
 name: Release
 
-# Pushing a `v*` tag runs CI and the Android build, then publishes the Firehose
-# demo's builds as a GitHub release: Linux (.deb, AppImage), macOS (.dmg for
-# Apple silicon and Intel) and Android (signed APK and AAB). The release also
-# carries Baguette's precompiled NIFs and hosts, which apps download (nif.yml,
-# host.yml).
+# Pushing a `v*` tag runs CI and the Android build, then publishes a GitHub
+# release with Baguette's precompiled NIFs and hosts, which apps download
+# (nif.yml, host.yml), and the Firehose demo's builds: Linux (.deb, AppImage),
+# macOS (.dmg for Apple silicon and Intel) and an Android APK. The demos are
+# unsigned samples: Baguette is a library, and apps sign their own builds.
+# Then it publishes the package to hex with the release's checksums and opens
+# a pull request that pins them on main.
 #
-# Running it by hand (workflow_dispatch) is a dry run: everything is built and
-# kept as the run's artifacts, with the host checksums in its summary, but
-# nothing is published.
+# Running it by hand (workflow_dispatch), or pushing to the `release-dry-run`
+# branch, is a dry run: everything is built and kept as the run's artifacts,
+# with the host checksums in its summary, but nothing is published. The
+# branch is for when a run can't be started by hand (GitHub's mobile app,
+# or a token without workflow-dispatch access).
 
 on:
   push:
     tags: ["v*"]
+    branches: [release-dry-run]
   workflow_dispatch:
 
 jobs:
+  # A tag must match mix.exs's version, and publishing needs HEX_API_KEY:
+  # checked before anything is built, so a bad tag publishes nothing.
+  preflight:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tag and hex key
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: |
+          version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
+          if [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME doesn't match mix.exs's version v$version"
+            exit 1
+          fi
+          if [ -z "$HEX_API_KEY" ]; then
+            echo "::error::No HEX_API_KEY secret: add one (mix hex.user key generate) to publish to hex"
+            exit 1
+          fi
+
   ci:
+    needs: [preflight]
     uses: ./.github/workflows/ci.yml
     secrets: inherit
 
   android:
+    needs: [preflight]
     uses: ./.github/workflows/android.yml
     secrets: inherit
 
   nif:
+    needs: [preflight]
     uses: ./.github/workflows/nif.yml
 
   host:
+    needs: [preflight]
     uses: ./.github/workflows/host.yml
 
   publish:
@@ -57,7 +87,53 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # The emulator's debug APK is a test build, not a release.
-          rm -f assets/firehose.apk
+          # The emulator's debug APK is a test build, and the AAB is only for
+          # Google Play, which rejects its throwaway signing key.
+          rm -f assets/firehose.apk assets/*.aab
           find assets -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" \
             --target "$GITHUB_SHA" --generate-notes
+
+  # The hex package ships the release's checksums, so apps download the
+  # precompiled NIF and host instead of compiling Rust.
+  hex:
+    needs: [publish]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "29.1.2"
+          elixir-version: "1.20.4"
+      # With no NIF checksums yet, compiling Baguette.Native builds the NIF.
+      - uses: dtolnay/rust-toolchain@stable
+      - run: mix deps.get
+      - name: Checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release-checksums.sh "$GITHUB_REF_NAME"
+      - name: Publish to hex
+        env:
+          HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
+        run: mix hex.publish --yes
+      # A pull request rather than a push: main may be protected. Actions
+      # need "Allow GitHub Actions to create and approve pull requests" in the
+      # repository settings; without it the branch is still pushed.
+      - name: Pin the checksums on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          branch="release-checksums-$GITHUB_REF_NAME"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "$branch"
+          git add priv/host.sha256 checksum-Elixir.Baguette.Native.exs
+          git commit -m "Pin $GITHUB_REF_NAME's precompiled host and NIF checksums"
+          git push origin "$branch"
+          gh pr create --base main --head "$branch" \
+            --title "Pin $GITHUB_REF_NAME's precompiled host and NIF checksums" \
+            --body "The checksums $GITHUB_REF_NAME's hex package shipped, from its GitHub release. Merge so checkouts of main match the package." \
+            || echo "::warning::Couldn't open the pull request; open one from $branch"
