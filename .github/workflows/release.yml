@@ -69,9 +69,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
+        # A release made on GitHub's site creates the tag too, so the release
+        # may already exist: then the assets are added to it, keeping its notes.
         run: |
-          find assets -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" \
-            --target "$GITHUB_SHA" --generate-notes
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            find assets -type f -print0 | xargs -0 gh release upload "$GITHUB_REF_NAME" --clobber
+          else
+            find assets -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" \
+              --target "$GITHUB_SHA" --generate-notes
+          fi
 
   # The hex package ships the release's checksums, so apps download the
   # precompiled NIF and host instead of compiling Rust.

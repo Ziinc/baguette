@@ -336,7 +336,8 @@ mix test --only playwright
 
 ## Releasing
 
-Pushing a `v*` tag matching `mix.exs`'s version releases Baguette:
+Pushing a `v*` tag matching `mix.exs`'s version, or publishing a GitHub release
+with one, releases Baguette:
 
 1. The precompiled NIF and host builds run. Tests and example builds don't:
    CI ran them on `main`, so tag a commit whose CI passed.
