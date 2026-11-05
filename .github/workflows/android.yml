@@ -74,6 +74,9 @@ jobs:
           scripts/build-liberlang-android.sh "$OTP_TAG" x86_64 ~/liberlang-build
           mkdir -p ~/liberlang-android/x86_64-linux-android
           cp ~/liberlang-build/{liberlang.so,erl_child_setup,inet_gethost} ~/liberlang-android/x86_64-linux-android/
+          # The OTP and OpenSSL build trees are gigabytes the emulator needs.
+          rm -rf ~/liberlang-build
+          df -h /
       - name: Build the Firehose APK
         working-directory: examples/broadway
         env:
@@ -181,6 +184,9 @@ jobs:
           scripts/build-liberlang-android.sh "$OTP_TAG" arm64 ~/liberlang-build
           mkdir -p ~/liberlang-android/aarch64-linux-android
           cp ~/liberlang-build/{liberlang.so,erl_child_setup,inet_gethost} ~/liberlang-android/aarch64-linux-android/
+          # The OTP and OpenSSL build trees are gigabytes the emulator needs.
+          rm -rf ~/liberlang-build
+          df -h /
       - name: Signing key
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
