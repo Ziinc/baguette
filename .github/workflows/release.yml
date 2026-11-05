@@ -1,12 +1,10 @@
 name: Release
 
-# Pushing a `v*` tag runs CI and the Android build, then publishes a GitHub
-# release with Baguette's precompiled NIFs and hosts, which apps download
-# (nif.yml, host.yml), and the Firehose demo's builds: Linux (.deb, AppImage),
-# macOS (.dmg for Apple silicon and Intel) and an Android APK. The demos are
-# unsigned samples: Baguette is a library, and apps sign their own builds.
-# Then it publishes the package to hex with the release's checksums and opens
-# a pull request that pins them on main.
+# Pushing a `v*` tag builds Baguette's precompiled NIFs and hosts (nif.yml,
+# host.yml), publishes them as a GitHub release for apps to download, then
+# publishes the package to hex with the release's checksums and opens a pull
+# request that pins them on main. It runs no tests or example builds: CI has
+# already run them on main, which the tag points at.
 #
 # Running it by hand (workflow_dispatch), or pushing to the `release-dry-run`
 # branch, is a dry run: everything is built and kept as the run's artifacts,
@@ -42,16 +40,6 @@ jobs:
             exit 1
           fi
 
-  ci:
-    needs: [preflight]
-    uses: ./.github/workflows/ci.yml
-    secrets: inherit
-
-  android:
-    needs: [preflight]
-    uses: ./.github/workflows/android.yml
-    secrets: inherit
-
   nif:
     needs: [preflight]
     uses: ./.github/workflows/nif.yml
@@ -61,17 +49,12 @@ jobs:
     uses: ./.github/workflows/host.yml
 
   publish:
-    needs: [ci, android, nif, host]
+    needs: [nif, host]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          pattern: firehose-*
-          merge-multiple: true
-          path: assets
       - uses: actions/download-artifact@v4
         with:
           pattern: host-*
@@ -87,9 +70,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          # The emulator's debug APK is a test build, and the AAB is only for
-          # Google Play, which rejects its throwaway signing key.
-          rm -f assets/firehose.apk assets/*.aab
           find assets -type f -print0 | xargs -0 gh release create "$GITHUB_REF_NAME" \
             --target "$GITHUB_SHA" --generate-notes
 

@@ -338,7 +338,8 @@ mix test --only playwright
 
 Pushing a `v*` tag matching `mix.exs`'s version releases Baguette:
 
-1. CI, the Android build and the precompiled NIF and host builds run.
+1. The precompiled NIF and host builds run. Tests and example builds don't:
+   CI ran them on `main`, so tag a commit whose CI passed.
 2. A GitHub release publishes what apps download instead of compiling Rust:
    - Baguette's NIF, for macOS (Apple silicon, Intel), Linux (x86_64,
      arm64) and Windows (`nif` workflow).
@@ -346,8 +347,6 @@ Pushing a `v*` tag matching `mix.exs`'s version releases Baguette:
      Linux and Windows on each OTP version (`host` workflow). A release with
      other components or features, `BAGUETTE_BUILD_HOST=1`, or a version
      without pinned checksums builds it with Cargo.
-   - The Firehose demo: `.deb` and AppImage, `.dmg` for Apple silicon and
-     Intel, and an Android APK. These are unsigned samples.
 3. `scripts/release-checksums.sh` pins the release's host and NIF checksums,
    and the package goes to hex with them (`mix hex.publish`, with the
    `HEX_API_KEY` repository secret).
@@ -356,7 +355,7 @@ Pushing a `v*` tag matching `mix.exs`'s version releases Baguette:
 Before anything builds, the tag is checked against `mix.exs` and the
 `HEX_API_KEY` secret against being empty. Running the Release workflow by
 hand, or pushing to the `release-dry-run` branch, is a dry run: it builds
-all of it as the run's artifacts and publishes nothing.
+the NIFs and hosts as the run's artifacts and publishes nothing.
 
 Baguette signs nothing itself: it is a library, and an app signs its own
 builds. `Baguette.Release` passes the signing settings through:
