@@ -25,6 +25,6 @@ playwright = ["levain/playwright"]
 
 [dependencies]
 # The host is levain running the BEAM (`baguette_beam`).
-levain = { git = "https://github.com/Ziinc/levain", rev = "7e26ac86ddf3480988043ea73bf948bafb20cde6", default-features = false }
+levain = { git = "https://github.com/Ziinc/levain", rev = "268f2c3cc21108f5e9a780b8c02d87bcd8de73fb", default-features = false }
 baguette_beam = { path = "../baguette_beam" }
 tauri = { version = "2.12", default-features = false }
