@@ -60,7 +60,7 @@ defmodule Baguette.MixProject do
       files:
         ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256 scripts mix.exs README.md LICENSE
            .formatter.exs checksum-Elixir.Baguette.Native.exs native/Cargo.toml
-           native/Cargo.lock native/baguette_abi native/baguette_nif priv/ios
+           native/Cargo.lock native/baguette_beam native/baguette_nif priv/ios
            native/baguette_ios/src native/baguette_ios/Cargo.toml
            native/baguette_ios/tauri.conf.json native/baguette_ios/package.json
            native/baguette_ios/package-lock.json) ++

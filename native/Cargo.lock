@@ -616,34 +616,23 @@ dependencies = [
 ]
 
 [[package]]
-name = "baguette_abi"
+name = "baguette_beam"
 version = "0.1.0"
+dependencies = [
+ "baguette_nif",
+ "cc",
+ "levain",
+ "log",
+]
 
 [[package]]
 name = "baguette_host"
 version = "0.1.0"
 dependencies = [
- "android_logger",
- "ashpd",
- "async-channel",
- "baguette_abi",
- "baguette_nif",
- "cc",
- "flate2",
- "futures-lite",
- "gpui-kit",
- "gpui-playwright",
- "libc",
- "log",
- "rust-embed",
- "serde",
- "serde_json",
- "tar",
+ "baguette_beam",
+ "levain",
  "tauri",
  "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-gpui",
- "tauri-plugin-opener",
 ]
 
 [[package]]
@@ -658,7 +647,7 @@ dependencies = [
 name = "baguette_nif"
 version = "0.1.0"
 dependencies = [
- "baguette_abi",
+ "levain-abi",
  "rustler",
 ]
 
@@ -4787,6 +4776,36 @@ name = "lebe"
 version = "0.5.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
+
+[[package]]
+name = "levain"
+version = "0.1.0"
+source = "git+https://github.com/Ziinc/levain?rev=7e26ac86ddf3480988043ea73bf948bafb20cde6#7e26ac86ddf3480988043ea73bf948bafb20cde6"
+dependencies = [
+ "android_logger",
+ "ashpd",
+ "async-channel",
+ "flate2",
+ "futures-lite",
+ "gpui-kit",
+ "gpui-playwright",
+ "levain-abi",
+ "libc",
+ "log",
+ "rust-embed",
+ "serde",
+ "serde_json",
+ "tar",
+ "tauri",
+ "tauri-plugin-dialog",
+ "tauri-plugin-gpui",
+ "tauri-plugin-opener",
+]
+
+[[package]]
+name = "levain-abi"
+version = "0.1.0"
+source = "git+https://github.com/Ziinc/levain?rev=7e26ac86ddf3480988043ea73bf948bafb20cde6#7e26ac86ddf3480988043ea73bf948bafb20cde6"
 
 [[package]]
 name = "libappindicator"

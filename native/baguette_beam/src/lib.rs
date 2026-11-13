@@ -1,4 +1,5 @@
-//! Boots the embedded BEAM from an Elixir release.
+//! Baguette's runtime for levain: boots the embedded BEAM from an Elixir
+//! release ([`Beam`], a [`levain::Runtime`]).
 //!
 //! The arguments mirror what a release's `bin/<name> start` passes through
 //! `erlexec`, so `sys.config`, `runtime.exs` and the boot script behave as in
@@ -8,7 +9,44 @@
 use std::ffi::CString;
 use std::path::PathBuf;
 
-use baguette_abi::HostApi;
+use levain::levain_abi::HostApi;
+use levain::{App, AppPaths, Runtime, WindowConfig};
+
+// iOS: Baguette's NIF is linked in, for the BEAM's static NIF table (build.rs).
+#[cfg(target_os = "ios")]
+use baguette_nif as _;
+
+/// The BEAM, running the Elixir release levain's host finds.
+#[derive(Default)]
+pub struct Beam;
+
+impl Runtime for Beam {
+    fn locate(&self, paths: &AppPaths) -> Result<App, String> {
+        #[cfg(not(mobile))]
+        let release = Release::locate(paths.exe.as_deref(), paths.resources.clone())?;
+        // A phone has no release directory to point at: the release ships
+        // inside the host library and is unpacked into the app's data.
+        #[cfg(mobile)]
+        let release = {
+            let data = paths.data.as_deref().ok_or("no app data directory")?;
+            let root = levain::mobile::unpack(data, |_staging| {
+                #[cfg(target_os = "android")]
+                mobile::link_native(_staging, &levain::mobile::native_lib_dir()?)?;
+                Ok(())
+            })?;
+            Release::locate_at(root)?
+        };
+        Ok(App {
+            root: release.root,
+            name: release.name,
+            window: release.window,
+        })
+    }
+
+    fn start(&self, app: App, api: &'static HostApi) -> Result<(), String> {
+        start(Release::locate_at(app.root)?, api)
+    }
+}
 
 /// A release laid out by `mix release`.
 pub struct Release {
@@ -19,26 +57,6 @@ pub struct Release {
     /// Where `erl_child_setup` is, which the BEAM starts at boot (on Windows,
     /// `beam.smp.dll`, the BEAM itself; iOS has none: see `build.rs`).
     pub bindir: PathBuf,
-}
-
-/// The main window, from `releases/<vsn>/baguette.json`, which
-/// `Baguette.Release.package/1` writes from the release's `baguette` options.
-#[derive(serde::Deserialize)]
-#[serde(default)]
-pub struct WindowConfig {
-    pub title: Option<String>,
-    pub width: f64,
-    pub height: f64,
-}
-
-impl Default for WindowConfig {
-    fn default() -> Self {
-        Self {
-            title: None,
-            width: 480.0,
-            height: 360.0,
-        }
-    }
 }
 
 /// Where the release may be, for the executable at `exe`: the release it
@@ -66,10 +84,11 @@ impl Release {
     /// in (`<root>/bin/<name>_app`, as `mix release` lays it out), or the one
     /// a Tauri bundle carries in its resources (`<resources>/release`).
     #[cfg(not(mobile))]
-    pub fn locate(resources: Option<PathBuf>) -> Result<Self, String> {
-        let around_exe = std::env::current_exe()
-            .map(|exe| release_candidates(&exe))
-            .unwrap_or_default();
+    pub fn locate(
+        exe: Option<&std::path::Path>,
+        resources: Option<PathBuf>,
+    ) -> Result<Self, String> {
+        let around_exe = exe.map(release_candidates).unwrap_or_default();
         let root = match std::env::var_os("BAGUETTE_RELEASE_ROOT") {
             Some(root) => PathBuf::from(root),
             None => around_exe
@@ -103,15 +122,7 @@ impl Release {
             .next()
             .ok_or("no .rel file in the release")?;
         let window = std::fs::read(root.join("releases").join(version).join("baguette.json"))
-            .ok()
-            .and_then(|json| {
-                #[derive(serde::Deserialize)]
-                struct Config {
-                    window: WindowConfig,
-                }
-                serde_json::from_slice::<Config>(&json).ok()
-            })
-            .map(|config| config.window)
+            .map(|json| WindowConfig::from_app_json(&json))
             .unwrap_or_default();
         // On a phone the release's own ERTS binaries are the build machine's;
         // `mobile::unpack` puts Android's `erl_child_setup` in `bin`.
@@ -178,7 +189,7 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
             #[cfg(target_os = "android")]
             (
                 "RUSTLER_BEAM_LIBRARY_PATH",
-                mobile::native_lib_dir()?
+                levain::mobile::native_lib_dir()?
                     .join("liberlang.so")
                     .display()
                     .to_string(),
@@ -242,7 +253,7 @@ pub fn start(release: Release, host: &'static HostApi) -> Result<(), String> {
     #[cfg(all(target_os = "ios", baguette_beam))]
     if let Some(at) = args.iter().position(|a| a == "-baguette_platform") {
         let servers = ios_nameservers();
-        crate::log_line(&format!("baguette: nameservers {servers}"));
+        levain::log_line(&format!("baguette: nameservers {servers}"));
         if !servers.is_empty() {
             args.insert(at, servers);
             args.insert(at, "-baguette_nameservers".into());
@@ -319,7 +330,7 @@ mod windows {
     /// Loads `$BINDIR/beam.smp.dll` (`start` sets `BINDIR`) and runs the BEAM.
     pub unsafe fn erl_start(argc: c_int, argv: *mut *mut c_char) {
         let Some(bindir) = std::env::var_os("BINDIR") else {
-            return crate::log_line("baguette: BINDIR is not set");
+            return levain::log_line("baguette: BINDIR is not set");
         };
         let dll = std::path::Path::new(&bindir).join("beam.smp.dll");
         let wide: Vec<u16> = dll.as_os_str().encode_wide().chain([0]).collect();
@@ -333,7 +344,7 @@ mod windows {
             );
             if module.is_null() {
                 let error = GetLastError();
-                return crate::log_line(&format!(
+                return levain::log_line(&format!(
                     "baguette: loading {}: error {error}",
                     dll.display()
                 ));
@@ -341,7 +352,7 @@ mod windows {
             let init = GetProcAddress(module, c"sys_primitive_init".as_ptr());
             let start = GetProcAddress(module, c"erl_start".as_ptr());
             if init.is_null() || start.is_null() {
-                return crate::log_line(&format!("baguette: {} has no erl_start", dll.display()));
+                return levain::log_line(&format!("baguette: {} has no erl_start", dll.display()));
             }
             let init: unsafe extern "C" fn(Module) = std::mem::transmute(init);
             let start: unsafe extern "C" fn(c_int, *mut *mut c_char) = std::mem::transmute(start);
@@ -390,9 +401,6 @@ pub fn shipped_name(stem: &str) -> String {
     format!("lib{}.so", &name[..end])
 }
 
-/// Android and iOS: the release ships inside this library and is unpacked
-/// into the app's data on first launch.
-///
 /// Android only runs executables from the app's native library directory and
 /// links each library against what it lists, so the APK carries the BEAM as
 /// `liberlang.so`, its port programs as `lib<name>.so` (`erl_child_setup`,
@@ -400,95 +408,11 @@ pub fn shipped_name(stem: &str) -> String {
 /// Unpacking links the release to them: `bin/<program>` and every
 /// `priv/<name>.so` and `priv/native/<name>.so` become symlinks into that
 /// directory. iOS runs no programs and links every NIF into the app.
-#[cfg(mobile)]
-pub mod mobile {
+#[cfg(target_os = "android")]
+mod mobile {
     use std::path::{Path, PathBuf};
 
-    #[cfg(baguette_embedded_release)]
-    static ARCHIVE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/release.tar.gz"));
-    #[cfg(not(baguette_embedded_release))]
-    static ARCHIVE: &[u8] = &[];
-
-    /// The directory Android installed this library in.
-    #[cfg(target_os = "android")]
-    pub fn native_lib_dir() -> Result<PathBuf, String> {
-        let mut info: libc::Dl_info = unsafe { std::mem::zeroed() };
-        // SAFETY: dladdr only reads the address and fills `info`.
-        let found = unsafe { libc::dladdr(native_lib_dir as *const libc::c_void, &mut info) };
-        if found == 0 || info.dli_fname.is_null() {
-            return Err("cannot find the app's native library directory".into());
-        }
-        // SAFETY: dladdr returned a NUL-terminated path.
-        let path = unsafe { std::ffi::CStr::from_ptr(info.dli_fname) };
-        Path::new(&*path.to_string_lossy())
-            .parent()
-            .map(Path::to_path_buf)
-            .ok_or_else(|| "the app's library has no directory".into())
-    }
-
-    /// Unpacks the embedded release under `data_dir`, once per release, and
-    /// returns its root.
-    pub fn unpack(data_dir: &Path) -> Result<PathBuf, String> {
-        if ARCHIVE.is_empty() {
-            return Err(
-                "this app was built without an Elixir release (BAGUETTE_RELEASE_ARCHIVE)".into(),
-            );
-        }
-        let root = data_dir.join(format!("release-{}", env!("BAGUETTE_RELEASE_HASH")));
-        if !root.join("releases/start_erl.data").is_file() {
-            let staging = data_dir.join("release-unpacking");
-            let _ = std::fs::remove_dir_all(&staging);
-            std::fs::create_dir_all(&staging).map_err(|e| e.to_string())?;
-            tar::Archive::new(flate2::read::GzDecoder::new(ARCHIVE))
-                .unpack(&staging)
-                .map_err(|e| format!("unpacking the release: {e}"))?;
-            #[cfg(target_os = "android")]
-            link_native(&staging, &native_lib_dir()?)?;
-            let _ = std::fs::remove_dir_all(&root);
-            std::fs::rename(&staging, &root).map_err(|e| e.to_string())?;
-            // Earlier releases of this app.
-            for entry in std::fs::read_dir(data_dir).into_iter().flatten().flatten() {
-                let path = entry.path();
-                let name = entry.file_name().to_string_lossy().into_owned();
-                if name.starts_with("release-") && path != root {
-                    let _ = std::fs::remove_dir_all(path);
-                }
-            }
-        }
-        crate::log_line(&format!("baguette: release at {}", root.display()));
-        Ok(root)
-    }
-
-    /// Sends the BEAM's stdout and stderr (Logger, `IO.puts`, crash reports)
-    /// to logcat under the `beam` tag; Android discards them otherwise.
-    #[cfg(target_os = "android")]
-    pub fn log_stdio() {
-        let mut fds = [0; 2];
-        // SAFETY: pipe fills two descriptors; dup2 points stdout and stderr at
-        // its write end for the life of the process.
-        unsafe {
-            if libc::pipe(fds.as_mut_ptr()) != 0 {
-                return;
-            }
-            libc::dup2(fds[1], 1);
-            libc::dup2(fds[1], 2);
-        }
-        let read = fds[0];
-        let _ = std::thread::Builder::new()
-            .name("beam-log".into())
-            .spawn(move || {
-                use std::io::BufRead;
-                use std::os::fd::FromRawFd;
-                // SAFETY: the read end belongs to this thread alone.
-                let file = unsafe { std::fs::File::from_raw_fd(read) };
-                for line in std::io::BufReader::new(file).lines().map_while(Result::ok) {
-                    log::info!(target: "beam", "{line}");
-                }
-            });
-    }
-
-    #[cfg(target_os = "android")]
-    fn link_native(root: &Path, native: &Path) -> Result<(), String> {
+    pub fn link_native(root: &Path, native: &Path) -> Result<(), String> {
         let link = |target: PathBuf, at: PathBuf| -> Result<(), String> {
             let _ = std::fs::remove_file(&at);
             std::os::unix::fs::symlink(&target, &at)

@@ -1,0 +1,23 @@
+[package]
+name = "baguette_beam"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# Baguette's levain runtime: the BEAM, booting the app's Elixir release.
+
+[build-dependencies]
+# iOS: compiles the BEAM's static NIF table (`build.rs`).
+cc = "1"
+
+[dependencies]
+levain = { git = "https://github.com/Ziinc/levain", rev = "7e26ac86ddf3480988043ea73bf948bafb20cde6", default-features = false }
+
+[target.'cfg(target_os = "android")'.dependencies]
+log = "0.4"
+
+# iOS links every NIF into the app: Baguette's is a dependency, listed in the
+# BEAM's static NIF table (`build.rs`).
+[target.'cfg(target_os = "ios")'.dependencies]
+baguette_nif = { path = "../baguette_nif" }
