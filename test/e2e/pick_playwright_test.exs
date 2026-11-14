@@ -1,5 +1,5 @@
 defmodule Baguette.E2E.PickPlaywrightTest do
-  # The board release with BAGUETTE_PICK_FILE, the host's test hook that
+  # The board release with LEVAIN_PICK_FILE, the host's test hook that
   # answers file pickers without opening the native dialog.
   use ExUnit.Case, async: false
   alias Baguette.Playwright
@@ -9,7 +9,7 @@ defmodule Baguette.E2E.PickPlaywrightTest do
   @app Path.expand("../../examples/board/_build/prod/rel/board/bin/board_app", __DIR__)
 
   setup do
-    app = Playwright.start_app!(@app, env: [{"BAGUETTE_PICK_FILE", "/tmp/orders.csv"}])
+    app = Playwright.start_app!(@app, env: [{"LEVAIN_PICK_FILE", "/tmp/orders.csv"}])
     on_exit(fn -> Playwright.stop_app(app) end)
     %{page: Playwright.connect!(app), app: app}
   end

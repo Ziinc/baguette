@@ -10,5 +10,5 @@ publish = false
 crate-type = ["cdylib", "staticlib", "rlib"]
 
 [dependencies]
-levain-abi = { git = "https://github.com/Ziinc/levain", rev = "268f2c3cc21108f5e9a780b8c02d87bcd8de73fb" }
+levain-abi = { git = "https://github.com/Ziinc/levain", rev = "b11c92a44bd56125a8a960e1b441241d22afb60a" }
 rustler = "0.38"

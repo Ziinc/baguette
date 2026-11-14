@@ -26,7 +26,7 @@ fn main() {
         println!("cargo::rustc-cfg=baguette_beam");
         return;
     }
-    let Some(dir) = baguette_env("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
+    let Some(dir) = levain_build::env_var("BAGUETTE_LIBERLANG").map(PathBuf::from) else {
         return;
     };
     let target = env::var("TARGET").unwrap();
@@ -72,16 +72,6 @@ fn main() {
     }
 }
 
-/// A Baguette variable, or the same with a `TAURI_` prefix: Tauri's iOS build
-/// (Cargo run from Xcode) passes on only `TAURI_*`, `CARGO_*` and a few
-/// others, so `Baguette.Release.ios/1` sets those.
-fn baguette_env(name: &str) -> Option<std::ffi::OsString> {
-    let tauri = format!("TAURI_{name}");
-    println!("cargo::rerun-if-env-changed={name}");
-    println!("cargo::rerun-if-env-changed={tauri}");
-    env::var_os(name).or_else(|| env::var_os(tauri))
-}
-
 /// iOS loads no code but the app's, so every NIF is linked into it and listed
 /// in ERTS's static NIF table, `erts_static_nif_tab`. `liberlang.a` leaves
 /// that table (`driver_tab.o`) out and ships OTP's generated `driver_tab.c`
@@ -102,7 +92,7 @@ fn ios_glue(liberlang: &std::path::Path) {
     let table = std::fs::read_to_string(&source)
         .unwrap_or_else(|e| panic!("{}: {e} (from build-liberlang-ios.sh)", source.display()));
     let mut nifs = vec!["baguette_nif".to_string()];
-    if let Some(dir) = baguette_env("BAGUETTE_IOS_NIFS").map(PathBuf::from) {
+    if let Some(dir) = levain_build::env_var("BAGUETTE_IOS_NIFS").map(PathBuf::from) {
         println!("cargo::rerun-if-changed={}", dir.display());
         println!("cargo::rustc-link-search=native={}", dir.display());
         let mut archives: Vec<String> = std::fs::read_dir(&dir)

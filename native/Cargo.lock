@@ -622,6 +622,7 @@ dependencies = [
  "baguette_nif",
  "cc",
  "levain",
+ "levain-build",
  "log",
 ]
 
@@ -631,8 +632,8 @@ version = "0.1.0"
 dependencies = [
  "baguette_beam",
  "levain",
+ "levain-build",
  "tauri",
- "tauri-build",
 ]
 
 [[package]]
@@ -4780,7 +4781,7 @@ checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 [[package]]
 name = "levain"
 version = "0.1.0"
-source = "git+https://github.com/Ziinc/levain?rev=268f2c3cc21108f5e9a780b8c02d87bcd8de73fb#268f2c3cc21108f5e9a780b8c02d87bcd8de73fb"
+source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
 dependencies = [
  "android_logger",
  "ashpd",
@@ -4805,7 +4806,15 @@ dependencies = [
 [[package]]
 name = "levain-abi"
 version = "0.1.0"
-source = "git+https://github.com/Ziinc/levain?rev=268f2c3cc21108f5e9a780b8c02d87bcd8de73fb#268f2c3cc21108f5e9a780b8c02d87bcd8de73fb"
+source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
+
+[[package]]
+name = "levain-build"
+version = "0.1.0"
+source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
+dependencies = [
+ "tauri-build",
+]
 
 [[package]]
 name = "libappindicator"

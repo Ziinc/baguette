@@ -58,7 +58,8 @@ defmodule Baguette.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
       files:
-        ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256 scripts mix.exs README.md LICENSE
+        ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256
+           priv/levain-pack.sha256 scripts mix.exs README.md LICENSE
            .formatter.exs checksum-Elixir.Baguette.Native.exs native/Cargo.toml
            native/Cargo.lock native/baguette_beam native/baguette_nif priv/ios
            native/baguette_ios/src native/baguette_ios/Cargo.toml

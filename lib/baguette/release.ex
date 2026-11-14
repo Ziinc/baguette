@@ -797,8 +797,8 @@ defmodule Baguette.Release do
   end
 
   # `levain-pack`, which packages the host (see levain): `LEVAIN_PACK`, the
-  # precompiled one from Baguette's GitHub release when its checksum is
-  # pinned in `priv/host.sha256`, or else built with Cargo from the levain
+  # precompiled one from levain's GitHub release when `priv/levain-pack.sha256`
+  # pins it for this platform, or else built with Cargo from the levain
   # revision the host is pinned to.
   defp levain_pack!(args, opts \\ []) do
     pack = levain_pack_path()
@@ -818,14 +818,14 @@ defmodule Baguette.Release do
   end
 
   defp levain_pack_path do
-    asset = levain_pack_asset(baguette_version(), desktop_target())
+    sums = sha256_file("priv/levain-pack.sha256")
 
-    case levain_pack_source(System.get_env(), host_sha256(), asset) do
+    case levain_pack_source(System.get_env(), sums, desktop_target()) do
       {:local, path} ->
         path
 
-      :precompiled ->
-        Path.join(download_asset!(asset), "levain-pack#{exe()}")
+      {:precompiled, url, sha256} ->
+        Path.join(download!(url, sha256), "levain-pack#{exe()}")
 
       :build ->
         {repo, rev} = levain_revision()
@@ -848,19 +848,34 @@ defmodule Baguette.Release do
     end
   end
 
-  @doc false
-  # `levain-pack`'s asset in Baguette's GitHub release.
-  @spec levain_pack_asset(String.t(), String.t()) :: String.t()
-  def levain_pack_asset(version, target), do: "levain-pack-v#{version}-#{target}.tar.gz"
+  # levain's GitHub releases, which carry `levain-pack` for each platform.
+  @levain_releases "https://github.com/Ziinc/levain/releases/download"
 
   @doc false
-  # Where `levain-pack` comes from: `LEVAIN_PACK` in `env`, else the release's
-  # asset when `checksums` pins it, else a build from the pinned levain.
-  @spec levain_pack_source(map(), map(), String.t()) :: {:local, Path.t()} | :precompiled | :build
-  def levain_pack_source(env, checksums, asset) do
+  # Where `levain-pack` comes from: `LEVAIN_PACK` in `env`; else levain's
+  # release asset for `target` when `checksums` (`priv/levain-pack.sha256`:
+  # `levain-pack-v<levain version>-<target>.tar.gz` lines from that release's
+  # SHA256SUMS) pins one; else a build from the pinned levain.
+  @spec levain_pack_source(map(), map(), String.t()) ::
+          {:local, Path.t()} | {:precompiled, String.t(), String.t()} | :build
+  def levain_pack_source(env, checksums, target) do
+    suffix = "-#{target}.tar.gz"
+
+    pinned =
+      Enum.find_value(checksums, fn {asset, sha256} ->
+        with "levain-pack-v" <> rest <- asset,
+             true <- String.ends_with?(rest, suffix),
+             version = String.replace_suffix(rest, suffix, ""),
+             true <- version =~ ~r/^\d+\.\d+\.\d+$/ do
+          {:precompiled, "#{@levain_releases}/v#{version}/#{asset}", sha256}
+        else
+          _ -> nil
+        end
+      end)
+
     cond do
       path = env["LEVAIN_PACK"] -> {:local, path}
-      Map.has_key?(checksums, asset) -> :precompiled
+      pinned -> pinned
       true -> :build
     end
   end
@@ -882,11 +897,11 @@ defmodule Baguette.Release do
   @spec env_args(Enumerable.t()) :: [String.t()]
   def env_args(env), do: Enum.flat_map(env, fn {k, v} -> ["--env", "#{k}=#{v}"] end)
 
-  # Downloads, checks and unpacks a Baguette release asset into the user
-  # cache, once, and returns the directory. Only for `levain-pack` itself:
-  # everything else is fetched by it.
-  defp download_asset!(asset) do
-    sha256 = Map.get(host_sha256(), asset) || Mix.raise("no pinned checksum for #{asset}")
+  # Downloads `url`, a `.tar.gz` that must match `sha256`, and unpacks it into
+  # the user cache, once, returning the directory. Only for `levain-pack`
+  # itself: everything else is fetched by it.
+  defp download!(url, sha256) do
+    asset = Path.basename(url)
 
     dir =
       Path.join([
@@ -896,7 +911,6 @@ defmodule Baguette.Release do
       ])
 
     unless File.dir?(dir) do
-      url = "#{@liberlang_releases}/v#{baguette_version()}/#{asset}"
       body = http_get!(url)
 
       if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256,

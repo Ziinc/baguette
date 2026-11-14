@@ -34,11 +34,11 @@ check() {
   (cd /tmp && exec "$@") >"$log" 2>&1 &
   app=$!
   for _ in $(seq 120); do
-    grep -q "first frame from Elixir" "$log" && break
+    grep -q "levain: first frame" "$log" && break
     kill -0 "$app" 2>/dev/null || { echo "FAIL: $label exited"; cat "$log"; exit 1; }
     sleep 0.5
   done
-  grep -q "first frame from Elixir" "$log" || { echo "FAIL: $label never rendered"; cat "$log"; exit 1; }
+  grep -q "levain: first frame" "$log" || { echo "FAIL: $label never rendered"; cat "$log"; exit 1; }
   window=$(xdotool search --sync --name "^$title\$" | tail -1)
   sleep 2
   import -window "$window" "$out/$label.png"

@@ -142,7 +142,7 @@ input after submitting, track it with `phx-change` and reset it.
 `click/2`, `drag/4`, `fill/3`, `submit/2`, `pick_file/3`,
 `keydown/4` (`keydown(0, "z", [:ctrl], focus: "Title")`), `value/2`,
 `text/1`, `icons/2` (the `<icon>` names drawn, in the element labelled),
-`tree/1`. End-to-end, `BAGUETTE_PICK_FILE=/path` makes every
+`tree/1`. End-to-end, `LEVAIN_PICK_FILE=/path` makes every
 native file picker answer with that path instead of opening a dialog.
 
 `Baguette.Playwright` drives a real release through

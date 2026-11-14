@@ -42,8 +42,8 @@ wait_for() {
 shot() { adb exec-out screencap -p >"$OUT/$1.png"; }
 acked() { grep -Eo 'firehose: acked=[0-9]+' "$OUT/logcat.txt" | tail -1 | grep -Eo '[0-9]+$' || echo 0; }
 
-wait_for 'baguette: release at' 120
-wait_for 'baguette: first frame from Elixir' 120
+wait_for 'levain: app at' 120
+wait_for 'levain: first frame' 120
 wait_for 'firehose: acked=[1-9]' 60
 sleep 3
 shot firehose-start
@@ -62,7 +62,7 @@ fi
 # tap <label>: taps the control's centre.
 tap() {
   local at
-  at=$(grep -Eo "baguette: bounds $1 [0-9]+ [0-9]+" "$OUT/logcat.txt" | tail -1 | cut -d' ' -f4-)
+  at=$(grep -Eo "levain: bounds $1 [0-9]+ [0-9]+" "$OUT/logcat.txt" | tail -1 | cut -d' ' -f4-)
   if [[ -z $at ]]; then
     echo "FAIL: no bounds logged for $1"
     failures=$((failures + 1))

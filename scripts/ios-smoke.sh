@@ -60,12 +60,12 @@ wait_for() {
   fail "no line matching /$1/ within $2 s"
 }
 
-wait_for 'baguette: release at' 120
+wait_for 'levain: app at' 120
 # The BEAM boots with fork() refused, as a phone's sandbox refuses it.
 wait_for 'baguette: fork\(\) refused' 60
 # The system's DNS servers, which Baguette.DNS gives the BEAM's resolver.
 wait_for 'baguette: nameservers [0-9a-fA-F:.]+' 60
-wait_for 'baguette: first frame from Elixir' 120
+wait_for 'levain: first frame' 120
 sleep 3
 xcrun simctl io "$device" screenshot "$out/first-frame.png" >/dev/null
 
@@ -79,7 +79,7 @@ fi
 # (`brew install facebook/fb/idb-companion` and `pipx install fb-idb`).
 tap() {
   local at
-  at=$(grep -Eo "baguette: bounds $1 [0-9]+ [0-9]+" "$log" | tail -1 | cut -d' ' -f4-)
+  at=$(grep -Eo "levain: bounds $1 [0-9]+ [0-9]+" "$log" | tail -1 | cut -d' ' -f4-)
   [ -n "$at" ] || fail "no bounds logged for $1"
   echo "tap $1 at $at"
   # shellcheck disable=SC2086
@@ -87,7 +87,7 @@ tap() {
 }
 if [ "${COUNTER_TAPS:-1}" = 1 ]; then
   command -v idb >/dev/null || fail "idb is not installed (COUNTER_TAPS=0 skips the taps)"
-  wait_for 'baguette: bounds Increment [0-9]+ [0-9]+' 30
+  wait_for 'levain: bounds Increment [0-9]+ [0-9]+' 30
   tap Increment
   wait_for 'counter: count=1' 20
   tap Increment

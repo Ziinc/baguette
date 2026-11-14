@@ -110,24 +110,28 @@ defmodule Baguette.ReleaseTest do
   end
 
   describe "levain_pack_source/3" do
-    @asset "levain-pack-v0.2.0-x86_64-linux.tar.gz"
+    @sums %{
+      "levain-pack-v0.3.0-x86_64-linux.tar.gz" => "aa",
+      "levain-pack-v0.3.0-aarch64-macos.tar.gz" => "bb"
+    }
 
     test "LEVAIN_PACK uses a levain-pack built elsewhere, even with a pinned checksum" do
-      assert Release.levain_pack_source(
-               %{"LEVAIN_PACK" => "/tmp/pack"},
-               %{@asset => "sha"},
-               @asset
-             ) ==
+      assert Release.levain_pack_source(%{"LEVAIN_PACK" => "/tmp/pack"}, @sums, "x86_64-linux") ==
                {:local, "/tmp/pack"}
     end
 
-    test "a pinned checksum downloads the release's levain-pack" do
-      assert Release.levain_pack_source(%{}, %{@asset => "sha"}, @asset) == :precompiled
+    test "a pinned checksum downloads this target's levain-pack from levain's release" do
+      assert Release.levain_pack_source(%{}, @sums, "aarch64-macos") ==
+               {:precompiled,
+                "https://github.com/Ziinc/levain/releases/download/v0.3.0/levain-pack-v0.3.0-aarch64-macos.tar.gz",
+                "bb"}
     end
 
     test "without either, levain-pack is built from the pinned levain" do
-      assert Release.levain_pack_source(%{}, %{}, @asset) == :build
-      assert Release.levain_pack_source(%{}, %{"other.tar.gz" => "sha"}, @asset) == :build
+      assert Release.levain_pack_source(%{}, %{}, "x86_64-linux") == :build
+      assert Release.levain_pack_source(%{}, @sums, "x86_64-windows") == :build
+      # Another target's name is not a suffix match.
+      assert Release.levain_pack_source(%{}, @sums, "linux") == :build
     end
   end
 
@@ -138,17 +142,10 @@ defmodule Baguette.ReleaseTest do
              ["--env", "A=1", "--env", "B=x=y"]
   end
 
-  test "levain_pack_asset/2 names levain-pack as the host workflow publishes it" do
-    assert Release.levain_pack_asset("0.2.0", "x86_64-linux") ==
-             "levain-pack-v0.2.0-x86_64-linux.tar.gz"
-
-    workflow = File.read!(".github/workflows/host.yml")
-
-    assert Release.levain_pack_asset("$version", "${{ matrix.target }}") =~
-             "levain-pack-v$version"
-
-    assert workflow =~ ~s("out/levain-pack-v$version-${{ matrix.target }}.tar.gz")
-    assert workflow =~ "cargo install --locked --git https://github.com/Ziinc/levain"
+  test "levain-pack comes from levain's releases, not the host workflow" do
+    refute File.read!(".github/workflows/host.yml") =~ "levain-pack"
+    assert "priv/levain-pack.sha256" in Mix.Project.config()[:package][:files]
+    assert File.exists?("priv/levain-pack.sha256")
   end
 
   test "precompiled hosts are built for size, with the dist profile" do

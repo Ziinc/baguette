@@ -3,11 +3,11 @@ name: Host
 # Builds the precompiled native host that `mix release` downloads
 # (Baguette.Release.host_source/2): the default host (gpui-kit's component
 # set, no host features) for each platform and OTP version, linking that
-# OTP's liberlang, and levain-pack. The release workflow attaches them to
-# the version's GitHub release; pin the checksums this prints in
-# priv/host.sha256.
+# OTP's liberlang. The release workflow attaches them to the version's
+# GitHub release; pin the checksums this prints in priv/host.sha256.
 
 on:
+  pull_request:
   workflow_call:
   workflow_dispatch:
 
@@ -67,19 +67,12 @@ jobs:
       - name: Build the host
         working-directory: native
         run: BAGUETTE_LIBERLANG=$HOME/liberlang cargo build --profile dist -p baguette_host
-      # levain-pack, at the levain revision the host is pinned to, which
-      # `mix release` runs to fetch, install and bundle the host.
-      - name: Build levain-pack
-        run: |
-          rev=$(sed -n 's/^levain = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' native/baguette_host/Cargo.toml)
-          cargo install --locked --git https://github.com/Ziinc/levain --rev "$rev" --root ~/pack levain-pack
       - name: Package
         run: |
           version=$(sed -n 's/^  @version "\(.*\)"/\1/p' mix.exs)
           asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz"
           mkdir -p out
           tar -czf "out/$asset" -C native/target/dist baguette_host${{ runner.os == 'Windows' && '.exe' || '' }}
-          tar -czf "out/levain-pack-v$version-${{ matrix.target }}.tar.gz" -C ~/pack/bin levain-pack${{ runner.os == 'Windows' && '.exe' || '' }}
       - uses: actions/upload-artifact@v4
         with:
           name: host-${{ matrix.target }}

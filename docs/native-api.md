@@ -133,7 +133,7 @@ tests both read it, so the two sides can't drift apart.
   carry the keymap and the host binds it with `KeyBinding` and `bind_keys`
   (`keymap.rs`), as a single `ElixirAction` type carrying the action's
   name. Each window's bindings are scoped to its content's key context
-  (`baguette-window-<id>`), and a changed keymap replaces the old one. A global `on_action` listener sends it back, and the
+  (`levain-window-<id>`), and a changed keymap replaces the old one. A global `on_action` listener sends it back, and the
   view calls `handle_action(action, assigns)`. `key-context="Jobs"` on an
   element is its `key_context`; `tabindex="N"` gives it a focus handle with
   that tab index (`track_focus`), so a click focuses it and gpui-kit's Tab
