@@ -10,10 +10,10 @@ publish = false
 [build-dependencies]
 # iOS: compiles the BEAM's static NIF table (`build.rs`).
 cc = "1"
-levain-build = { git = "https://github.com/Ziinc/levain", rev = "b11c92a44bd56125a8a960e1b441241d22afb60a" }
+levain-build = { git = "https://github.com/Ziinc/levain", rev = "d53a3f5943ff17cd6a97f388b89a9280280974af" }
 
 [dependencies]
-levain = { git = "https://github.com/Ziinc/levain", rev = "b11c92a44bd56125a8a960e1b441241d22afb60a", default-features = false }
+levain = { git = "https://github.com/Ziinc/levain", rev = "d53a3f5943ff17cd6a97f388b89a9280280974af", default-features = false }
 
 [target.'cfg(target_os = "android")'.dependencies]
 log = "0.4"

@@ -220,7 +220,10 @@ defmodule Baguette.Host do
 
   @impl true
   def handle_info({:baguette_event, json}, state) do
-    case :json.decode(json) do
+    # JSON's null as nil, not `:json`'s default `:null`.
+    {event, :ok, _rest} = :json.decode(json, :ok, %{null: nil})
+
+    case event do
       # The host couldn't apply a patch: it gets the whole frame.
       %{"type" => "resync", "window" => window} ->
         if frame = state.frames[window], do: send_native(window, frame)

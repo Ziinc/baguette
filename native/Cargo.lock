@@ -4781,7 +4781,7 @@ checksum = "7a79a3332a6609480d7d0c9eab957bca6b455b91bb84e66d19f5ff66294b85b8"
 [[package]]
 name = "levain"
 version = "0.1.0"
-source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
+source = "git+https://github.com/Ziinc/levain?rev=d53a3f5943ff17cd6a97f388b89a9280280974af#d53a3f5943ff17cd6a97f388b89a9280280974af"
 dependencies = [
  "android_logger",
  "ashpd",
@@ -4791,6 +4791,7 @@ dependencies = [
  "gpui-kit",
  "gpui-playwright",
  "levain-abi",
+ "levain-build",
  "libc",
  "log",
  "rust-embed",
@@ -4806,12 +4807,12 @@ dependencies = [
 [[package]]
 name = "levain-abi"
 version = "0.1.0"
-source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
+source = "git+https://github.com/Ziinc/levain?rev=d53a3f5943ff17cd6a97f388b89a9280280974af#d53a3f5943ff17cd6a97f388b89a9280280974af"
 
 [[package]]
 name = "levain-build"
 version = "0.1.0"
-source = "git+https://github.com/Ziinc/levain?rev=b11c92a44bd56125a8a960e1b441241d22afb60a#b11c92a44bd56125a8a960e1b441241d22afb60a"
+source = "git+https://github.com/Ziinc/levain?rev=d53a3f5943ff17cd6a97f388b89a9280280974af#d53a3f5943ff17cd6a97f388b89a9280280974af"
 dependencies = [
  "tauri-build",
 ]

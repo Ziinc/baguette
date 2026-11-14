@@ -64,6 +64,7 @@ defmodule Baguette.EventsTest do
         :json,
         quote do
           def decode(binary), do: :elixir_json.decode(binary)
+          def decode(binary, acc, decoders), do: :elixir_json.decode(binary, acc, decoders)
           def encode(term), do: :elixir_json.encode(term)
         end,
         Macro.Env.location(__ENV__)
@@ -104,10 +105,8 @@ defmodule Baguette.EventsTest do
     end
   end
 
-  # A null `result` should reach the caller as `nil`; the host's decoder
-  # makes it `:null`, so `Baguette.Clipboard.read/0` of an empty clipboard
-  # (and `Baguette.Window.info/1` of a closed window) get the atom instead.
-  @tag skip: "known mismatch: Baguette.Host answers a null result with :null, not nil"
+  # `Baguette.Clipboard.read/0` of an empty clipboard and
+  # `Baguette.Window.info/1` of a closed window rely on this.
   test "a null result reaches the caller as nil", %{host: host} do
     assert {nil, _log} = reply_to(host, %{"type" => "reply", "ref" => 1, "result" => nil})
   end
@@ -161,8 +160,7 @@ defmodule Baguette.EventsTest do
   defp assert_handled(%{"type" => "reply", "result" => result} = event, host, _view) do
     {got, log} = reply_to(host, event)
 
-    # A null result: see the skipped test above.
-    if is_nil(result), do: assert(got in [nil, :null]), else: assert(got == result)
+    assert got == result
 
     case event["error"] do
       nil -> refute log =~ "platform call failed"
