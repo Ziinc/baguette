@@ -21,4 +21,25 @@ defmodule Baguette.App do
       _ -> :light
     end
   end
+
+  @doc """
+  Ends the app with exit status `code` (default `0`).
+
+  A command-line app that never renders (see `Baguette.CLI`) has no window,
+  and nothing else ends it: it must finish with `exit/1`. Print first, with
+  `IO.puts/1` (or `IO.puts(:stderr, ...)`): the process exits right after the
+  host answers.
+
+  Under `Baguette.Test`, the VM stays up and the code is recorded
+  (`Baguette.Test.exit_code/0`).
+  """
+  @spec exit(integer()) :: :ok
+  def exit(code \\ 0)
+  def exit(0), do: finish(%{})
+  def exit(code) when is_integer(code), do: finish(%{code: code})
+
+  defp finish(args) do
+    Baguette.Host.call("app.exit", args)
+    :ok
+  end
 end

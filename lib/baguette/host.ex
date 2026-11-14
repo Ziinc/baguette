@@ -34,9 +34,20 @@ defmodule Baguette.Host do
   @spec call(String.t(), map()) :: term()
   def call(name, args), do: GenServer.call(__MODULE__, {:call, name, args}, 10_000)
 
+  @doc """
+  Like `call/2`, but a call the host answers with an error returns
+  `{:error, message}` instead of `nil`; otherwise `{:ok, result}`.
+  """
+  @spec call(String.t(), map(), :errors) :: {:ok, term()} | {:error, String.t()}
+  def call(name, args, :errors),
+    do: GenServer.call(__MODULE__, {:call, name, args, :errors}, 10_000)
+
   @doc "The headless platform's state: clipboard, windows, menus, opened URLs."
   @spec platform() :: map()
   def platform, do: GenServer.call(__MODULE__, :platform)
+
+  @doc false
+  def put_platform(changes), do: GenServer.call(__MODULE__, {:put_platform, changes})
 
   @doc false
   def reset_platform, do: GenServer.call(__MODULE__, :reset_platform)
@@ -163,20 +174,39 @@ defmodule Baguette.Host do
   def handle_call(:native?, _from, state), do: {:reply, state.native, state}
 
   # The host replies with a `reply` event carrying the call's ref.
-  def handle_call({:call, name, args}, from, %{native: true} = state) do
+  def handle_call({:call, name, args}, from, %{native: true} = state),
+    do: handle_call({:call, name, args, :result}, from, state)
+
+  def handle_call({:call, name, args, mode}, from, %{native: true} = state) do
     ref = state.next_call
+    from = if mode == :errors, do: {:errors, from}, else: from
     message = %{"call" => name, "ref" => ref, "args" => args}
     Baguette.Native.call(IO.iodata_to_binary(:json.encode(message)))
     Process.send_after(self(), {:call_timeout, ref}, @call_timeout)
     {:noreply, %{state | calls: Map.put(state.calls, ref, from), next_call: ref + 1}}
   end
 
-  def handle_call({:call, name, args}, _from, state) do
+  def handle_call({:call, name, args}, from, state),
+    do: handle_call({:call, name, args, :result}, from, state)
+
+  def handle_call({:call, name, args, mode}, _from, state) do
     {reply, platform} = Baguette.Host.Headless.call(name, args, state.platform)
+
+    reply =
+      case {mode, reply} do
+        {:errors, {:error, _} = error} -> error
+        {:errors, reply} -> {:ok, reply}
+        {:result, {:error, _}} -> nil
+        {:result, reply} -> reply
+      end
+
     {:reply, reply, %{state | platform: platform}}
   end
 
   def handle_call(:platform, _from, state), do: {:reply, state.platform, state}
+
+  def handle_call({:put_platform, changes}, _from, state),
+    do: {:reply, :ok, %{state | platform: Map.merge(state.platform, Map.new(changes))}}
 
   def handle_call(:reset_platform, _from, state),
     do: {:reply, :ok, %{state | platform: Baguette.Host.Headless.new()}}
@@ -233,10 +263,17 @@ defmodule Baguette.Host do
         {from, calls} = Map.pop(state.calls, ref)
 
         if from do
-          GenServer.reply(from, reply["result"])
+          error = reply["error"]
 
-          if error = reply["error"],
-            do: Logger.warning("baguette: platform call failed: #{error}")
+          case from do
+            {:errors, from} ->
+              GenServer.reply(from, if(error, do: {:error, error}, else: {:ok, reply["result"]}))
+
+            from ->
+              GenServer.reply(from, reply["result"])
+          end
+
+          if error, do: Logger.warning("baguette: platform call failed: #{error}")
         end
 
         {:noreply, %{state | calls: calls}}
@@ -253,7 +290,11 @@ defmodule Baguette.Host do
 
     if from do
       Logger.warning("baguette: platform call #{ref} got no reply")
-      GenServer.reply(from, nil)
+
+      case from do
+        {:errors, from} -> GenServer.reply(from, {:error, "no reply"})
+        from -> GenServer.reply(from, nil)
+      end
     end
 
     {:noreply, %{state | calls: calls}}

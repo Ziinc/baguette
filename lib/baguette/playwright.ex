@@ -101,7 +101,11 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
     @spec alive?(app()) :: boolean()
     def alive?(%{os_pid: os_pid}), do: os_alive?(os_pid)
 
-    @doc "Connects to the app and returns its main window as a page."
+    @doc """
+    Connects to the app and returns its main window as a page. An app that
+    declares a `cli` opens its window on its first render, which can be after
+    the server starts: the connection waits for it (up to 60 s).
+    """
     @spec connect!(app()) :: page()
     def connect!(%{endpoint: endpoint}) do
       name = Module.concat(__MODULE__, "Conn#{System.unique_integer([:positive])}")
@@ -112,8 +116,27 @@ if Code.ensure_loaded?(PlaywrightEx) and Code.ensure_loaded?(WebSockex) do
       opts = [connection: PlaywrightEx.Supervisor.connection_name(name), timeout: @timeout]
       {:ok, browser} = PlaywrightEx.launch_browser(:chromium, opts)
       {:ok, context} = Browser.new_context(browser.guid, opts)
-      {:ok, page} = BrowserContext.new_page(context.guid, opts)
+      page = await_page!(context.guid, opts, 300)
       %{page: page.guid, frame: page.main_frame.guid, opts: opts}
+    end
+
+    # No window yet (see `connect!/1`) is retried; anything else fails.
+    defp await_page!(context, opts, tries) do
+      case BrowserContext.new_page(context, opts) do
+        {:ok, page} ->
+          page
+
+        {:error, error} when tries > 0 ->
+          if inspect(error) =~ "No window to open as a page" do
+            Process.sleep(200)
+            await_page!(context, opts, tries - 1)
+          else
+            raise "could not open the app's window as a page: #{inspect(error)}"
+          end
+
+        {:error, error} ->
+          raise "could not open the app's window as a page: #{inspect(error)}"
+      end
     end
 
     ## Locators

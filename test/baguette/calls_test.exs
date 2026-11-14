@@ -9,7 +9,7 @@ defmodule Baguette.CallsTest do
   # the headless host), since without a native host nothing else shows it.
   use ExUnit.Case, async: false
 
-  alias Baguette.{App, Clipboard, Host, Menu, Window}
+  alias Baguette.{App, CLI, Clipboard, Host, Menu, Window}
 
   @fixture "test/fixtures/calls.json"
   @external_resource @fixture
@@ -29,7 +29,10 @@ defmodule Baguette.CallsTest do
     "window.set_title" => &__MODULE__.window_set_title/0,
     "window.set_bounds, size and position" => &__MODULE__.window_bounds/0,
     "window.set_bounds, size only" => &__MODULE__.window_bounds_size/0,
-    "window.info" => &__MODULE__.window_info/0
+    "window.info" => &__MODULE__.window_info/0,
+    "cli.matches" => &CLI.matches/0,
+    "app.exit with a code" => &__MODULE__.exit_with_code/0,
+    "app.exit without a code" => &__MODULE__.exit_without_code/0
   }
 
   def write, do: Clipboard.write("copied")
@@ -48,6 +51,8 @@ defmodule Baguette.CallsTest do
   def window_bounds, do: Window.set_bounds(0, x: 10, y: 20, width: 800, height: 600)
   def window_bounds_size, do: Window.set_bounds(2, width: 640.5)
   def window_info, do: Window.info(0)
+  def exit_with_code, do: App.exit(2)
+  def exit_without_code, do: App.exit()
 
   setup do
     Host.reset_platform()
@@ -70,17 +75,21 @@ defmodule Baguette.CallsTest do
     me = self()
 
     receive do
-      {:trace, _host, :receive, {:"$gen_call", {^me, _}, {:call, name, args}}} -> {name, args}
+      {:trace, _host, :receive, {:"$gen_call", {^me, _}, {:call, name, args}}} ->
+        {name, args}
+
+      {:trace, _host, :receive, {:"$gen_call", {^me, _}, {:call, name, args, _mode}}} ->
+        {name, args}
     after
       1_000 -> flunk("no platform call was sent")
     end
   end
 
-  test "the fixture has a case for each of the ten calls" do
+  test "the fixture has a case for each of the twelve calls" do
     calls = @valid |> Enum.map(& &1["json"]["call"]) |> Enum.uniq() |> Enum.sort()
 
     assert calls ==
-             ~w(app.appearance app.open_url clipboard.read clipboard.write menu.set window.close window.info window.open window.set_bounds window.set_title)
+             ~w(app.appearance app.exit app.open_url cli.matches clipboard.read clipboard.write menu.set window.close window.info window.open window.set_bounds window.set_title)
   end
 
   test "every call the library makes is in the fixture, and each fixture call has a function" do

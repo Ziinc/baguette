@@ -26,6 +26,78 @@ defmodule Baguette.ReleaseTest do
              ["--no-default-features", "--features", "x"]
   end
 
+  describe "cli_config/1" do
+    test "writes Tauri's schema: camelCase keys, string names, nested subcommands" do
+      cli = [
+        description: "Adds numbers",
+        long_description: "Long",
+        before_help: "before",
+        after_help: "after",
+        args: [[name: "verbose", short: "v", description: "Chatty"]],
+        subcommands: [
+          sum: [
+            description: "Prints the sum",
+            args: [
+              [name: :a, index: 1, takes_value: true, required: true],
+              %{name: "rest", index: 3, number_of_values: 2, min_values: 1, max_values: 4},
+              [name: "mode", takes_value: true, possible_values: ["x", :y]],
+              [name: "out", required_unless_present: "json", require_equals: true],
+              [name: "when", requires_if: {"a", "b"}, conflicts_with_all: ["x"]]
+            ],
+            subcommands: %{"deep" => %{description: "d"}}
+          ]
+        ]
+      ]
+
+      assert Release.cli_config(cli) == %{
+               "description" => "Adds numbers",
+               "longDescription" => "Long",
+               "beforeHelp" => "before",
+               "afterHelp" => "after",
+               "args" => [%{"name" => "verbose", "short" => "v", "description" => "Chatty"}],
+               "subcommands" => %{
+                 "sum" => %{
+                   "description" => "Prints the sum",
+                   "args" => [
+                     %{"name" => "a", "index" => 1, "takesValue" => true, "required" => true},
+                     %{
+                       "name" => "rest",
+                       "index" => 3,
+                       "numberOfValues" => 2,
+                       "minValues" => 1,
+                       "maxValues" => 4
+                     },
+                     %{"name" => "mode", "takesValue" => true, "possibleValues" => ["x", "y"]},
+                     %{
+                       "name" => "out",
+                       "requiredUnlessPresent" => "json",
+                       "requireEquals" => true
+                     },
+                     %{"name" => "when", "requiresIf" => ["a", "b"], "conflictsWithAll" => ["x"]}
+                   ],
+                   "subcommands" => %{"deep" => %{"description" => "d"}}
+                 }
+               }
+             }
+    end
+
+    test "already-camelCase keys and nil values pass through" do
+      assert Release.cli_config(%{"takesValue" => true, description: nil}) ==
+               %{"takesValue" => true}
+    end
+
+    test "baguette_json/1 holds the window, and the cli only when declared" do
+      assert Release.baguette_json(%{baguette: [window: [title: "T"]]}) == %{
+               window: %{title: "T"}
+             }
+
+      assert Release.baguette_json(%{baguette: [cli: [description: "d"]]}) ==
+               %{window: %{}, cli: %{"description" => "d"}}
+
+      assert Release.baguette_json(%{}) == %{window: %{}}
+    end
+  end
+
   describe "host_source/2" do
     test "a default host is downloaded, precompiled" do
       assert Release.host_source([], %{}) == :precompiled

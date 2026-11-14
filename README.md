@@ -193,6 +193,47 @@ PlaywrightEx.Frame.click(page.main_frame.guid,
 Start the release with `GPUI_PLAYWRIGHT=9333` for that; the server only
 listens when it is set.
 
+## Command-line apps
+
+An app can also be a command-line tool. Declare the interface in the
+release's options (Tauri's CLI plugin schema, with snake_case keys) and read
+the parsed command line with `Baguette.CLI.matches/0`:
+
+```elixir
+# mix.exs
+releases: [
+  my_app: [
+    baguette: [
+      cli: [
+        subcommands: [
+          sum: [args: [[name: "a", index: 1, takes_value: true, required: true],
+                       [name: "b", index: 2, takes_value: true, required: true]]]
+        ]
+      ]
+    ]
+  ]
+]
+
+# my_app --help, my_app sum 2 3, ...
+case Baguette.CLI.matches() do
+  {:ok, %Baguette.CLI{subcommand: {"sum", %{args: %{"a" => a, "b" => b}}}}} ->
+    IO.puts(String.to_integer(a) + String.to_integer(b))
+    Baguette.App.exit(0)
+
+  _ ->
+    # no subcommand: start the view, as usual
+end
+```
+
+With a `cli` declared, the host opens no window until the app first renders
+to window 0. A run that never renders is headless and must end with
+`Baguette.App.exit/1`; print with `IO.puts/1` before it. `--help` is a match
+whose text is `args["help"]`, not an exit. On Linux even a headless run needs
+a display (X, Wayland or `xvfb-run`). Desktop only. Test it without a host
+with `Baguette.Test.put_cli/2` and `Baguette.Test.exit_code/0`;
+[examples/counter](examples/counter) is a counter that also runs
+`counter_app sum 2 3`.
+
 ## iOS
 
 `Baguette.Release.ios/1` builds an iOS app from a release. Add it to the

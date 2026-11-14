@@ -31,6 +31,33 @@ defmodule Baguette.Release do
 
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
+  `cli:` makes the app a command-line tool as well (see `Baguette.CLI`). It
+  takes Tauri's CLI plugin schema with snake_case keys, as keywords or maps;
+  they are written as `cli` in the release's `baguette.json` with the
+  camelCase keys the plugin reads (`takes_value` as `takesValue`,
+  `long_description`, `before_help`, `number_of_values`, `possible_values`,
+  `required_unless_present`, ...):
+
+      baguette: [
+        cli: [
+          description: "A counter that can also add numbers",
+          subcommands: [
+            sum: [
+              description: "Prints a + b",
+              args: [
+                [name: "a", index: 1, takes_value: true, required: true],
+                [name: "b", index: 2, takes_value: true, required: true]
+              ]
+            ]
+          ]
+        ]
+      ]
+
+  With a `cli`, the host opens no window until the app renders to window 0:
+  a run that never renders is headless and must end with
+  `Baguette.App.exit/1`. Desktop only; on Linux even a headless run needs a
+  display.
+
   The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
   `mix release`. It is downloaded from Baguette's GitHub releases, checked
   against a pinned SHA-256 and cached under the user cache directory. Set
@@ -158,11 +185,10 @@ defmodule Baguette.Release do
 
   defp package_desktop(release) do
     host = desktop_host!(release)
-    window = Map.new(get_in(release.options, [:baguette, :window]) || [])
 
     File.write!(
       Path.join([release.version_path, "baguette.json"]),
-      :json.encode(%{window: window})
+      :json.encode(baguette_json(release.options))
     )
 
     trim_erts!(release.path)
@@ -170,6 +196,47 @@ defmodule Baguette.Release do
     target = Path.join([release.path, "bin", "#{release.name}_app#{exe()}"])
     levain_pack!(["install", host, target])
     release
+  end
+
+  @doc false
+  # What `baguette.json` holds: the main window, and the `cli` when declared.
+  @spec baguette_json(keyword() | map()) :: map()
+  def baguette_json(options) do
+    json = %{window: Map.new(get_in(options, [:baguette, :window]) || [])}
+
+    case get_in(options, [:baguette, :cli]) do
+      nil -> json
+      cli -> Map.put(json, :cli, cli_config(cli))
+    end
+  end
+
+  @doc false
+  # The `cli` option in Tauri's CLI plugin schema: keys (of a command and of
+  # its args) as camelCase strings, subcommand names as strings, atoms and
+  # tuples as strings and lists, nils dropped.
+  @spec cli_config(keyword() | map()) :: map()
+  def cli_config(config) do
+    for {key, value} <- config, value != nil, into: %{} do
+      {camelize(key), cli_value(to_string(key), value)}
+    end
+  end
+
+  defp cli_value(key, subcommands) when key == "subcommands" do
+    Map.new(subcommands, fn {name, config} -> {to_string(name), cli_config(config)} end)
+  end
+
+  defp cli_value("args", args), do: Enum.map(args, &cli_config/1)
+  defp cli_value(_key, value), do: cli_leaf(value)
+
+  defp cli_leaf(value) when is_boolean(value) or is_number(value), do: value
+  defp cli_leaf(value) when is_atom(value), do: Atom.to_string(value)
+  defp cli_leaf(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&cli_leaf/1)
+  defp cli_leaf(value) when is_list(value), do: Enum.map(value, &cli_leaf/1)
+  defp cli_leaf(value), do: value
+
+  defp camelize(key) do
+    [first | rest] = key |> to_string() |> String.split("_")
+    first <> Enum.map_join(rest, &String.capitalize/1)
   end
 
   # The host executable for this release, from wherever `host_source/2` says.

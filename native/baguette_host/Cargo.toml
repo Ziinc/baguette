@@ -12,7 +12,7 @@ name = "baguette_host_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
-levain-build = { git = "https://github.com/Ziinc/levain", rev = "d53a3f5943ff17cd6a97f388b89a9280280974af" }
+levain-build = { git = "https://github.com/Ziinc/levain", rev = "73037944960fdd7164feb571650fd3cfbd9dfdb1" }
 
 [features]
 default = ["components-gpui-kit"]
@@ -25,6 +25,6 @@ playwright = ["levain/playwright"]
 
 [dependencies]
 # The host is levain running the BEAM (`baguette_beam`).
-levain = { git = "https://github.com/Ziinc/levain", rev = "d53a3f5943ff17cd6a97f388b89a9280280974af", default-features = false }
+levain = { git = "https://github.com/Ziinc/levain", rev = "73037944960fdd7164feb571650fd3cfbd9dfdb1", default-features = false }
 baguette_beam = { path = "../baguette_beam" }
 tauri = { version = "2.12", default-features = false }

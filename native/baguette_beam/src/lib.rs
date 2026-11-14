@@ -10,7 +10,7 @@ use std::ffi::CString;
 use std::path::PathBuf;
 
 use levain::levain_abi::HostApi;
-use levain::{App, AppPaths, Runtime, WindowConfig};
+use levain::{App, AppPaths, Runtime, WindowConfig, cli_from_app_json};
 
 // iOS: Baguette's NIF is linked in, for the BEAM's static NIF table (build.rs).
 #[cfg(target_os = "ios")]
@@ -40,6 +40,7 @@ impl Runtime for Beam {
             root: release.root,
             name: release.name,
             window: release.window,
+            cli: release.cli,
         })
     }
 
@@ -54,6 +55,9 @@ pub struct Release {
     pub name: String,
     pub version: String,
     pub window: WindowConfig,
+    /// The command-line interface the release declares (`cli` in its
+    /// `baguette.json`), if any.
+    pub cli: Option<serde_json::Value>,
     /// Where `erl_child_setup` is, which the BEAM starts at boot (on Windows,
     /// `beam.smp.dll`, the BEAM itself; iOS has none: see `build.rs`).
     pub bindir: PathBuf,
@@ -121,9 +125,12 @@ impl Release {
             })
             .next()
             .ok_or("no .rel file in the release")?;
-        let window = std::fs::read(root.join("releases").join(version).join("baguette.json"))
-            .map(|json| WindowConfig::from_app_json(&json))
+        let app_json = std::fs::read(root.join("releases").join(version).join("baguette.json"));
+        let window = app_json
+            .as_deref()
+            .map(WindowConfig::from_app_json)
             .unwrap_or_default();
+        let cli = app_json.as_deref().ok().and_then(cli_from_app_json);
         // On a phone the release's own ERTS binaries are the build machine's;
         // `mobile::unpack` puts Android's `erl_child_setup` in `bin`.
         let bindir = if cfg!(mobile) {
@@ -134,6 +141,7 @@ impl Release {
         Ok(Self {
             root,
             window,
+            cli,
             bindir,
             name,
             version: version.to_owned(),
@@ -477,6 +485,42 @@ mod tests {
     }
 
     use super::*;
+
+    /// A release directory holding only what `locate_at` reads.
+    fn release_with(app_json: Option<&str>) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "baguette-beam-test-{}-{}",
+            std::process::id(),
+            app_json.map_or(0, str::len)
+        ));
+        let version = root.join("releases/0.1.0");
+        std::fs::create_dir_all(&version).unwrap();
+        std::fs::write(root.join("releases/start_erl.data"), "14.0 0.1.0").unwrap();
+        std::fs::write(version.join("demo.rel"), "").unwrap();
+        if let Some(json) = app_json {
+            std::fs::write(version.join("baguette.json"), json).unwrap();
+        }
+        root
+    }
+
+    #[test]
+    fn a_release_reads_window_and_cli_from_baguette_json() {
+        let json = r#"{"window": {"title": "Demo"}, "cli": {"subcommands": {"sum": {}}}}"#;
+        let release = Release::locate_at(release_with(Some(json))).unwrap();
+        assert_eq!(release.window.title.as_deref(), Some("Demo"));
+        assert_eq!(
+            release.cli,
+            Some(serde_json::json!({"subcommands": {"sum": {}}}))
+        );
+    }
+
+    #[test]
+    fn a_release_without_cli_or_baguette_json_declares_none() {
+        let release = Release::locate_at(release_with(Some(r#"{"window": {}}"#))).unwrap();
+        assert_eq!(release.cli, None);
+        let release = Release::locate_at(release_with(None)).unwrap();
+        assert_eq!(release.cli, None);
+    }
 
     #[test]
     fn nifs_ship_as_lib_and_their_rust_library_name() {

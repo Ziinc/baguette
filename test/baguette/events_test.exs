@@ -105,6 +105,33 @@ defmodule Baguette.EventsTest do
     end
   end
 
+  # `Baguette.CLI.matches/0` asks for errors, and gets `{:error, message}`
+  # where `call/2` would log and return nil.
+  test "an error reply reaches a caller that asked for errors", %{host: host} do
+    from = {self(), make_ref()}
+    :sys.replace_state(host, fn state -> put_in(state.calls[40], {:errors, from}) end)
+
+    capture_log(fn ->
+      reply = %{"type" => "reply", "ref" => 40, "result" => nil, "error" => "cli.matches: bad"}
+      send(host, {:baguette_event, IO.iodata_to_binary(JSON.encode!(reply))})
+      :sys.get_state(host)
+    end)
+
+    {_, tag} = from
+    assert_receive {^tag, {:error, "cli.matches: bad"}}
+  end
+
+  test "a success reply reaches a caller that asked for errors", %{host: host} do
+    from = {self(), make_ref()}
+    :sys.replace_state(host, fn state -> put_in(state.calls[41], {:errors, from}) end)
+    reply = %{"type" => "reply", "ref" => 41, "result" => %{"args" => %{}}}
+    send(host, {:baguette_event, IO.iodata_to_binary(JSON.encode!(reply))})
+    :sys.get_state(host)
+
+    {_, tag} = from
+    assert_receive {^tag, {:ok, %{"args" => %{}}}}
+  end
+
   # `Baguette.Clipboard.read/0` of an empty clipboard and
   # `Baguette.Window.info/1` of a closed window rely on this.
   test "a null result reaches the caller as nil", %{host: host} do
