@@ -178,8 +178,9 @@ tests both read it, so the two sides can't drift apart.
     (else its path), so a prepended row keeps or starts its own; a new
     `id` starts a new one. The host asks for animation frames only while
     one runs, and the element keeps its layout and stays observable.
-- **Generated style attributes** (step 8). `mix baguette.styles` reads
-  `gpui-pre`'s rustdoc JSON (this needs nightly) and writes `style_gen.rs`.
+- **Generated style attributes** (step 8). `mix baguette.styles ../levain`
+  reads `gpui-pre`'s rustdoc JSON (this needs nightly) and writes levain's
+  `levain/src/style_gen.rs`, in the levain checkout it is given.
   That file is a sorted table with one class per argument-free `Styled`
   method in the stable categories: about 3,100, such as `w-1/2`, `-mt-2`,
   `p-0.5`, `rounded-t-lg`, `gap-x-3` and `cursor-grab`. `style.rs` tries the

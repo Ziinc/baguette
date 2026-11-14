@@ -818,17 +818,16 @@ defmodule Baguette.Release do
   end
 
   defp levain_pack_path do
-    target = desktop_target()
-    asset = "levain-pack-v#{baguette_version()}-#{target}.tar.gz"
+    asset = levain_pack_asset(baguette_version(), desktop_target())
 
-    cond do
-      path = System.get_env("LEVAIN_PACK") ->
+    case levain_pack_source(System.get_env(), host_sha256(), asset) do
+      {:local, path} ->
         path
 
-      Map.has_key?(host_sha256(), asset) ->
+      :precompiled ->
         Path.join(download_asset!(asset), "levain-pack#{exe()}")
 
-      true ->
+      :build ->
         {repo, rev} = levain_revision()
         root = Path.join([:filename.basedir(:user_cache, "baguette"), "levain-pack", rev])
         pack = Path.join([root, "bin", "levain-pack#{exe()}"])
@@ -850,6 +849,23 @@ defmodule Baguette.Release do
   end
 
   @doc false
+  # `levain-pack`'s asset in Baguette's GitHub release.
+  @spec levain_pack_asset(String.t(), String.t()) :: String.t()
+  def levain_pack_asset(version, target), do: "levain-pack-v#{version}-#{target}.tar.gz"
+
+  @doc false
+  # Where `levain-pack` comes from: `LEVAIN_PACK` in `env`, else the release's
+  # asset when `checksums` pins it, else a build from the pinned levain.
+  @spec levain_pack_source(map(), map(), String.t()) :: {:local, Path.t()} | :precompiled | :build
+  def levain_pack_source(env, checksums, asset) do
+    cond do
+      path = env["LEVAIN_PACK"] -> {:local, path}
+      Map.has_key?(checksums, asset) -> :precompiled
+      true -> :build
+    end
+  end
+
+  @doc false
   # The levain repository and revision the host is pinned to.
   @spec levain_revision(String.t()) :: {String.t(), String.t()}
   def levain_revision(
@@ -861,8 +877,10 @@ defmodule Baguette.Release do
     end
   end
 
+  @doc false
   # `--env NAME=value` for each variable levain-pack passes on.
-  defp env_args(env), do: Enum.flat_map(env, fn {k, v} -> ["--env", "#{k}=#{v}"] end)
+  @spec env_args(Enumerable.t()) :: [String.t()]
+  def env_args(env), do: Enum.flat_map(env, fn {k, v} -> ["--env", "#{k}=#{v}"] end)
 
   # Downloads, checks and unpacks a Baguette release asset into the user
   # cache, once, and returns the directory. Only for `levain-pack` itself:

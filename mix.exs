@@ -83,6 +83,7 @@ defmodule Baguette.MixProject do
       # Baguette.Playwright: end-to-end tests through gpui-playwright.
       {:playwright_ex, "~> 0.15", optional: true},
       {:websockex, "~> 0.4", optional: true},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end

@@ -6,13 +6,14 @@ Levain is the shared Rust host of the Boulangerie project: one renderer, platfor
 
 ## Crates
 
-Levain is a Cargo workspace of three crates. Each language builds a thin host binary on top of it.
+Levain is a Cargo workspace of four crates. Each language builds a thin host binary on top of it.
 
 | Crate | Kind | Contents |
 | --- | --- | --- |
 | `levain-abi` | lib | The C ABI (`HostApi`, `EventSink`), today's `baguette_abi`. No dependencies |
 | `levain` | lib | Renderer, bridge, component sets, platform calls, app startup, mobile unpacking, the `playwright` feature, the `Runtime` trait |
 | `levain-pack` | bin | Packaging: picks the precompiled host and checks its SHA-256, runs `tauri bundle`, generates the iOS and Android projects |
+| `levain-build` | lib | Build-script helpers for host crates (pending confirmation) |
 
 | Host | Built from | Lives in |
 | --- | --- | --- |
@@ -20,7 +21,7 @@ Levain is a Cargo workspace of three crates. Each language builds a thin host bi
 | `chouquette_host` | `levain` + the QuickJS runtime; a second build with the libnode runtime | Ziinc/chouquette |
 | `briochette_host` | `levain` + the CPython runtime | Ziinc/briochette |
 
-Each host's `main.rs` is about 20 lines: `levain::run(Runtime)`. All three crate names were free on crates.io, and `levain` on Hex, on 13 Nov 2026.
+Each host's `main.rs` is about 20 lines: `levain::run(runtime, tauri::generate_context!())`, with the host's own Tauri context. All three crate names were free on crates.io, and `levain` on Hex, on 13 Nov 2026.
 
 ## What moves out of baguette
 
@@ -61,7 +62,7 @@ pub trait Runtime: Send + 'static {
 
 // chouquette_host/src/main.rs
 fn main() {
-    levain::run(chouquette_quickjs::QuickJs::default());
+    levain::run(chouquette_quickjs::QuickJs::default(), tauri::generate_context!());
 }
 ```
 
@@ -91,7 +92,7 @@ Gate: **baguette's `mix test`, `cargo test` and the counter's end-to-end test pa
 2. Move `baguette_abi` to `levain-abi`; rename symbols, `ABI_VERSION` 4.
 3. Move the host modules into `levain`, with their unit tests and the conformance fixtures.
 4. Add the `Runtime` trait; turn `beam.rs` into baguette's BEAM runtime crate implementing it.
-5. Shrink `baguette_host` to `levain::run(Beam)`.
+5. Shrink `baguette_host` to `levain::run(Beam, tauri::generate_context!())`.
 6. Port host selection, checksums, bundling and iOS/Android project generation from `release.ex` to `levain-pack`; the mix tasks call it.
 7. Windows: the counter builds and runs, then passes its end-to-end test.
 
@@ -103,7 +104,7 @@ Gate: **baguette's `mix test`, `cargo test` and the counter's end-to-end test pa
 
 ## Open questions
 
-- [ ] What blocks baguette on Windows today: BEAM startup, packaging, or both?
-- [ ] Does `levain-pack` ship in M0, or does baguette keep `release.ex` until chouquette needs packaging in M1?
+- [x] What blocks baguette on Windows today: BEAM startup, packaging, or both? Nothing blocked it.
+- [x] Does `levain-pack` ship in M0, or does baguette keep `release.ex` until chouquette needs packaging in M1? It ships in M0.
 - [ ] Which `events.json` cases make up the first conformance set?
 - [ ] When can tauri-plugin-gpui, gpui-playwright and the gpui-kit patches be published, so levain can go to crates.io?

@@ -87,7 +87,7 @@ defmodule Mix.Tasks.Baguette.Styles do
           words
       end
 
-    name = words |> Enum.map(&String.replace(&1, ~r/^(\d+)p(\d+)$/, "\\1.\\2")) |> Enum.join("-")
+    name = Enum.map_join(words, "-", &String.replace(&1, ~r/^(\d+)p(\d+)$/, "\\1.\\2"))
     if negative, do: "-" <> name, else: name
   end
 

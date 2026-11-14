@@ -63,6 +63,94 @@ defmodule Baguette.ReleaseTest do
     assert workflow =~ "OTP_TAG: OTP-"
   end
 
+  describe "levain_revision/1" do
+    test "reads the repository and revision levain is pinned to" do
+      cargo = """
+      [dependencies]
+      levain = { git = "https://github.com/Ziinc/levain", rev = "268f2c3cc21", default-features = false }
+      """
+
+      assert Release.levain_revision(cargo) == {"https://github.com/Ziinc/levain", "268f2c3cc21"}
+    end
+
+    test "raises without a pin" do
+      for cargo <- [
+            "",
+            ~s(levain = { path = "../../../levain" }\n),
+            ~s(levain = { git = "https://github.com/Ziinc/levain", branch = "main" }\n)
+          ] do
+        assert_raise Mix.Error, ~r/pins no levain revision/, fn ->
+          Release.levain_revision(cargo)
+        end
+      end
+    end
+
+    test "the host reads the pin from its own Cargo.toml" do
+      assert {"https://" <> _, rev} = Release.levain_revision()
+      assert rev =~ ~r/^[0-9a-f]{40}$/
+    end
+
+    test "baguette_host, baguette_beam and baguette_nif pin the same levain revision" do
+      pins =
+        for crate <- ~w(baguette_host baguette_beam baguette_nif), into: %{} do
+          cargo = File.read!("native/#{crate}/Cargo.toml")
+
+          assert [_, repo, rev] =
+                   Regex.run(
+                     ~r/^levain(?:-abi)? = \{ git = "([^"]+)", rev = "([0-9a-f]+)"/m,
+                     cargo
+                   ),
+                 "native/#{crate}/Cargo.toml pins no levain revision"
+
+          {crate, {repo, rev}}
+        end
+
+      assert pins |> Map.values() |> Enum.uniq() |> length() == 1, inspect(pins)
+    end
+  end
+
+  describe "levain_pack_source/3" do
+    @asset "levain-pack-v0.2.0-x86_64-linux.tar.gz"
+
+    test "LEVAIN_PACK uses a levain-pack built elsewhere, even with a pinned checksum" do
+      assert Release.levain_pack_source(
+               %{"LEVAIN_PACK" => "/tmp/pack"},
+               %{@asset => "sha"},
+               @asset
+             ) ==
+               {:local, "/tmp/pack"}
+    end
+
+    test "a pinned checksum downloads the release's levain-pack" do
+      assert Release.levain_pack_source(%{}, %{@asset => "sha"}, @asset) == :precompiled
+    end
+
+    test "without either, levain-pack is built from the pinned levain" do
+      assert Release.levain_pack_source(%{}, %{}, @asset) == :build
+      assert Release.levain_pack_source(%{}, %{"other.tar.gz" => "sha"}, @asset) == :build
+    end
+  end
+
+  test "env_args/1 passes each variable to levain-pack as --env NAME=value" do
+    assert Release.env_args([]) == []
+
+    assert Release.env_args([{"A", "1"}, {"B", "x=y"}]) ==
+             ["--env", "A=1", "--env", "B=x=y"]
+  end
+
+  test "levain_pack_asset/2 names levain-pack as the host workflow publishes it" do
+    assert Release.levain_pack_asset("0.2.0", "x86_64-linux") ==
+             "levain-pack-v0.2.0-x86_64-linux.tar.gz"
+
+    workflow = File.read!(".github/workflows/host.yml")
+
+    assert Release.levain_pack_asset("$version", "${{ matrix.target }}") =~
+             "levain-pack-v$version"
+
+    assert workflow =~ ~s("out/levain-pack-v$version-${{ matrix.target }}.tar.gz")
+    assert workflow =~ "cargo install --locked --git https://github.com/Ziinc/levain"
+  end
+
   test "precompiled hosts are built for size, with the dist profile" do
     workflow = File.read!(".github/workflows/host.yml")
     assert workflow =~ "cargo build --profile dist -p baguette_host"

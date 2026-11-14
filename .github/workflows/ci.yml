@@ -29,8 +29,26 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: mix deps.get
       - run: mix format --check-formatted
+      - run: mix credo --strict
       - run: mix compile --warnings-as-errors
       - run: mix test
+      # Files levain also holds, which its own tests check: the patch and
+      # component fixtures, the component manifest and the host's events.
+      - name: Fixtures match levain
+        run: |
+          rev=$(sed -n 's/^levain = { git = "[^"]*", rev = "\([0-9a-f]*\)".*/\1/p' native/baguette_host/Cargo.toml)
+          test -n "$rev"
+          git init -q /tmp/levain
+          git -C /tmp/levain fetch -q --depth 1 https://github.com/Ziinc/levain "$rev"
+          git -C /tmp/levain checkout -q FETCH_HEAD
+          status=0
+          for pair in test/fixtures/patches.json:fixtures/patches.json \
+                      test/fixtures/components.json:fixtures/components.json \
+                      test/fixtures/events.json:fixtures/events.json \
+                      priv/components/gpui-kit.json:components/gpui-kit.json; do
+            diff -u "/tmp/levain/${pair#*:}" "${pair%%:*}" || status=1
+          done
+          exit $status
       - name: Example tests
         run: |
           for example in examples/*/; do

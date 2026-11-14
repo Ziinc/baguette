@@ -297,7 +297,7 @@ each platform and has a GitHub Actions release workflow to copy.
   the BEAM (`liberlang.a`), boots the app's release with `erl_start`, and
   draws the trees the release sends.
 - `native/baguette_nif`: the Rustler NIF that connects `Baguette.Host` to the
-  host's C ABI (`native/baguette_abi`).
+  host's C ABI (`levain-abi`, in levain).
 - `lib/`: the Elixir library: views, the render protocol, components, test
   helpers and `mix release` packaging.
 
