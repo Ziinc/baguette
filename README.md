@@ -142,7 +142,7 @@ input after submitting, track it with `phx-change` and reset it.
 `click/2`, `drag/4`, `fill/3`, `submit/2`, `pick_file/3`,
 `keydown/4` (`keydown(0, "z", [:ctrl], focus: "Title")`), `value/2`,
 `text/1`, `icons/2` (the `<icon>` names drawn, in the element labelled),
-`tree/1`. End-to-end, `BAGUETTE_PICK_FILE=/path` makes every
+`tree/1`. End-to-end, `LEVAIN_PICK_FILE=/path` makes every
 native file picker answer with that path instead of opening a dialog.
 
 `Baguette.Playwright` drives a real release through
@@ -192,6 +192,47 @@ PlaywrightEx.Frame.click(page.main_frame.guid,
 
 Start the release with `GPUI_PLAYWRIGHT=9333` for that; the server only
 listens when it is set.
+
+## Command-line apps
+
+An app can also be a command-line tool. Declare the interface in the
+release's options (Tauri's CLI plugin schema, with snake_case keys) and read
+the parsed command line with `Baguette.CLI.matches/0`:
+
+```elixir
+# mix.exs
+releases: [
+  my_app: [
+    baguette: [
+      cli: [
+        subcommands: [
+          sum: [args: [[name: "a", index: 1, takes_value: true, required: true],
+                       [name: "b", index: 2, takes_value: true, required: true]]]
+        ]
+      ]
+    ]
+  ]
+]
+
+# my_app --help, my_app sum 2 3, ...
+case Baguette.CLI.matches() do
+  {:ok, %Baguette.CLI{subcommand: {"sum", %{args: %{"a" => a, "b" => b}}}}} ->
+    IO.puts(String.to_integer(a) + String.to_integer(b))
+    Baguette.App.exit(0)
+
+  _ ->
+    # no subcommand: start the view, as usual
+end
+```
+
+With a `cli` declared, the host opens no window until the app first renders
+to window 0. A run that never renders is headless and must end with
+`Baguette.App.exit/1`; print with `IO.puts/1` before it. `--help` is a match
+whose text is `args["help"]`, not an exit. On Linux even a headless run needs
+a display (X, Wayland or `xvfb-run`). Desktop only. Test it without a host
+with `Baguette.Test.put_cli/2` and `Baguette.Test.exit_code/0`;
+[examples/counter](examples/counter) is a counter that also runs
+`counter_app sum 2 3`.
 
 ## iOS
 
@@ -297,7 +338,7 @@ each platform and has a GitHub Actions release workflow to copy.
   the BEAM (`liberlang.a`), boots the app's release with `erl_start`, and
   draws the trees the release sends.
 - `native/baguette_nif`: the Rustler NIF that connects `Baguette.Host` to the
-  host's C ABI (`native/baguette_abi`).
+  host's C ABI (`levain-abi`, in levain).
 - `lib/`: the Elixir library: views, the render protocol, components, test
   helpers and `mix release` packaging.
 
@@ -324,6 +365,16 @@ NIFs on iOS, then Windows.
 mix test
 (cd native && cargo test)
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
+```
+
+CI's `lint` job runs [ast-grep](https://ast-grep.github.io) rules over the
+Rust (`native/lint/ast-grep`), [typos](https://github.com/crate-ci/typos),
+[cargo-machete](https://github.com/bnjbvr/cargo-machete) and
+[cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (`native/deny.toml`):
+
+```sh
+typos
+(cd native && ast-grep test && ast-grep scan && cargo machete && cargo deny --locked check)
 ```
 
 End-to-end tests through [gpui-playwright](https://github.com/ziinc/gpui-playwright),

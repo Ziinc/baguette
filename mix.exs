@@ -58,9 +58,10 @@ defmodule Baguette.MixProject do
       licenses: ["MIT"],
       links: %{"GitHub" => @source_url},
       files:
-        ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256 scripts mix.exs README.md LICENSE
+        ~w(lib priv/components priv/host.sha256 priv/liberlang.sha256
+           priv/levain-pack.sha256 scripts mix.exs README.md LICENSE
            .formatter.exs checksum-Elixir.Baguette.Native.exs native/Cargo.toml
-           native/Cargo.lock native/baguette_abi native/baguette_nif priv/ios
+           native/Cargo.lock native/baguette_beam native/baguette_nif priv/ios
            native/baguette_ios/src native/baguette_ios/Cargo.toml
            native/baguette_ios/tauri.conf.json native/baguette_ios/package.json
            native/baguette_ios/package-lock.json) ++
@@ -83,6 +84,7 @@ defmodule Baguette.MixProject do
       # Baguette.Playwright: end-to-end tests through gpui-playwright.
       {:playwright_ex, "~> 0.15", optional: true},
       {:websockex, "~> 0.4", optional: true},
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.38", only: :dev, runtime: false}
     ]
   end

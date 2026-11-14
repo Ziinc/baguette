@@ -27,6 +27,44 @@ defmodule Baguette.Test do
   alias Baguette.Host
 
   @doc """
+  Sets the command line the fake host reports to `Baguette.CLI.matches/0`:
+  `args` is a map of argument name to value, and `subcommand` is `nil`,
+  `{name, args}` or `{name, args, subcommand}`. Without it `matches/0` returns
+  the "declares no cli" error, as a release with no `cli` does.
+
+      Baguette.Test.put_cli(%{}, {"sum", %{"a" => "2", "b" => "3"}})
+
+  Each value counts as one occurrence, unless it is `nil` or `false` (none).
+  `Baguette.Host.reset_platform/0` clears it.
+  """
+  @spec put_cli(map(), nil | tuple()) :: :ok
+  def put_cli(args \\ %{}, subcommand \\ nil),
+    do: Host.put_platform(cli: cli_wire(args, subcommand))
+
+  defp cli_wire(args, subcommand) do
+    %{
+      "args" =>
+        Map.new(args, fn {name, value} ->
+          {to_string(name),
+           %{"value" => value, "occurrences" => if(value in [nil, false], do: 0, else: 1)}}
+        end),
+      "subcommand" =>
+        case subcommand do
+          nil -> nil
+          {name, args} -> %{"name" => name, "matches" => cli_wire(args, nil)}
+          {name, args, sub} -> %{"name" => name, "matches" => cli_wire(args, sub)}
+        end
+    }
+  end
+
+  @doc """
+  The code the app passed to `Baguette.App.exit/1`, or `nil` if it has not.
+  The fake host records it and keeps running.
+  """
+  @spec exit_code() :: integer() | nil
+  def exit_code, do: Host.platform().exit_code
+
+  @doc """
   The root node last rendered to `window`. Each `<list>` holds the rows the
   host has of it, in order, as its children.
   """

@@ -1,0 +1,4 @@
+# sha256sum of levain-pack for each platform, from the SHA256SUMS of the
+# levain GitHub release the host is built against:
+# levain-pack-v<levain version>-<target>.tar.gz. A platform without a line
+# builds levain-pack with Cargo from the pinned levain revision.

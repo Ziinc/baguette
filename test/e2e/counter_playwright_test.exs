@@ -37,6 +37,6 @@ defmodule Baguette.E2E.CounterPlaywrightTest do
 
   test "log/1 returns what the app has printed so far", %{app: app, page: page} do
     assert :ok = Playwright.await_text(page, "Count: 0")
-    assert Playwright.log(app) =~ "baguette: playwright on"
+    assert Playwright.log(app) =~ "levain: playwright on"
   end
 end

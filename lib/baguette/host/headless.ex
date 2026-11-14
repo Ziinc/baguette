@@ -9,7 +9,11 @@ defmodule Baguette.Host.Headless do
       windows: %{0 => %{"title" => nil, "x" => nil, "y" => nil, "width" => 800, "height" => 600}},
       opened_urls: [],
       menus: [],
-      appearance: "light"
+      appearance: "light",
+      # The reply to `cli.matches` (`Baguette.Test.put_cli/2`), or nil: none declared.
+      cli: nil,
+      # The code `app.exit` was called with, or nil.
+      exit_code: nil
     }
   end
 
@@ -17,6 +21,15 @@ defmodule Baguette.Host.Headless do
   def call("clipboard.write", %{text: text}, p), do: {nil, %{p | clipboard: text}}
   def call("app.open_url", %{url: url}, p), do: {nil, %{p | opened_urls: p.opened_urls ++ [url]}}
   def call("app.appearance", _args, p), do: {p.appearance, p}
+
+  def call("cli.matches", _args, %{cli: nil} = p),
+    do: {{:error, "cli.matches: the app declares no cli"}, p}
+
+  def call("cli.matches", _args, p), do: {p.cli, p}
+
+  # The test VM stays up: the code is recorded for `Baguette.Test.exit_code/0`.
+  def call("app.exit", args, p), do: {nil, %{p | exit_code: Map.get(args, :code, 0)}}
+
   def call("menu.set", %{menus: menus}, p), do: {nil, %{p | menus: menus}}
   def call("window.info", %{window: w}, p), do: {p.windows[w], p}
 

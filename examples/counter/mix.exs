@@ -9,6 +9,20 @@ defmodule Counter.MixProject do
       deps: [{:baguette, path: "../.."}],
       releases: [
         counter: [
+          baguette: [
+            cli: [
+              description: "A counter that can also add numbers without a window",
+              subcommands: [
+                sum: [
+                  description: "Prints the sum of two numbers and exits",
+                  args: [
+                    [name: "a", index: 1, takes_value: true, required: true],
+                    [name: "b", index: 2, takes_value: true, required: true]
+                  ]
+                ]
+              ]
+            ]
+          ],
           steps: [
             :assemble,
             &Baguette.Release.package/1,

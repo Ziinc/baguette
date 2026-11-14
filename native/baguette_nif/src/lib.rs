@@ -4,7 +4,7 @@
 use std::ffi::c_void;
 use std::sync::RwLock;
 
-use baguette_abi::{ABI_VERSION, EventSink, HostApi};
+use levain_abi::{ABI_VERSION, EventSink, HostApi};
 use rustler::{Binary, Encoder, Env, LocalPid, NifResult, OwnedBinary, OwnedEnv};
 
 mod atoms {

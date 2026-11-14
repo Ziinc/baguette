@@ -211,8 +211,9 @@ defmodule Baguette.Release.AndroidNifs do
   The name a NIF file ships under in the APK: `lib<name>.so`, from its
   library name (`lib_name/1`), so a precompiled
   `libexplorer-v0.13.0-nif-2.15-x86_64-unknown-linux-gnu.so` ships as
-  `libexplorer.so`. The host's `shipped_name` (in `beam.rs`) links the
-  release's file to it by the same rule.
+  `libexplorer.so`. The host's `shipped_name` (in
+  `native/baguette_beam/src/lib.rs`) links the release's file to it by the
+  same rule.
   """
   @spec jni_name(String.t()) :: String.t()
   def jni_name(file), do: "lib#{lib_name(file)}.so"

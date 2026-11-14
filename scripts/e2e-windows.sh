@@ -31,7 +31,7 @@ APP_PID=$!
 trap 'taskkill //F //IM counter_app.exe >/dev/null 2>&1 || true' EXIT
 
 for _ in $(seq 120); do
-  if grep -q "baguette: first frame from Elixir" "$LOG"; then
+  if grep -q "levain: first frame" "$LOG"; then
     echo "first frame drawn"
     cat "$LOG"
     exit 0

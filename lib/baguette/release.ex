@@ -31,6 +31,33 @@ defmodule Baguette.Release do
 
   `window: [title: "My app", width: 800, height: 600]` sets the main window.
 
+  `cli:` makes the app a command-line tool as well (see `Baguette.CLI`). It
+  takes Tauri's CLI plugin schema with snake_case keys, as keywords or maps;
+  they are written as `cli` in the release's `baguette.json` with the
+  camelCase keys the plugin reads (`takes_value` as `takesValue`,
+  `long_description`, `before_help`, `number_of_values`, `possible_values`,
+  `required_unless_present`, ...):
+
+      baguette: [
+        cli: [
+          description: "A counter that can also add numbers",
+          subcommands: [
+            sum: [
+              description: "Prints a + b",
+              args: [
+                [name: "a", index: 1, takes_value: true, required: true],
+                [name: "b", index: 2, takes_value: true, required: true]
+              ]
+            ]
+          ]
+        ]
+      ]
+
+  With a `cli`, the host opens no window until the app renders to window 0:
+  a run that never renders is headless and must end with
+  `Baguette.App.exit/1`. Desktop only; on Linux even a headless run needs a
+  display.
+
   The host links a prebuilt BEAM (`liberlang.a`) for the OTP version running
   `mix release`. It is downloaded from Baguette's GitHub releases, checked
   against a pinned SHA-256 and cached under the user cache directory. Set
@@ -158,22 +185,58 @@ defmodule Baguette.Release do
 
   defp package_desktop(release) do
     host = desktop_host!(release)
-    window = Map.new(get_in(release.options, [:baguette, :window]) || [])
 
     File.write!(
       Path.join([release.version_path, "baguette.json"]),
-      :json.encode(%{window: window})
+      :json.encode(baguette_json(release.options))
     )
 
     trim_erts!(release.path)
 
     target = Path.join([release.path, "bin", "#{release.name}_app#{exe()}"])
-    # Replace rather than overwrite, so a running copy doesn't block the build.
-    File.rm(target)
-    File.cp!(host, target)
-    File.chmod!(target, 0o755)
-    Mix.shell().info([:green, "* installed ", :reset, Path.relative_to_cwd(target)])
+    levain_pack!(["install", host, target])
     release
+  end
+
+  @doc false
+  # What `baguette.json` holds: the main window, and the `cli` when declared.
+  @spec baguette_json(keyword() | map()) :: map()
+  def baguette_json(options) do
+    json = %{window: Map.new(get_in(options, [:baguette, :window]) || [])}
+
+    case get_in(options, [:baguette, :cli]) do
+      nil -> json
+      cli -> Map.put(json, :cli, cli_config(cli))
+    end
+  end
+
+  @doc false
+  # The `cli` option in Tauri's CLI plugin schema: keys (of a command and of
+  # its args) as camelCase strings, subcommand names as strings, atoms and
+  # tuples as strings and lists, nils dropped.
+  @spec cli_config(keyword() | map()) :: map()
+  def cli_config(config) do
+    for {key, value} <- config, value != nil, into: %{} do
+      {camelize(key), cli_value(to_string(key), value)}
+    end
+  end
+
+  defp cli_value(key, subcommands) when key == "subcommands" do
+    Map.new(subcommands, fn {name, config} -> {to_string(name), cli_config(config)} end)
+  end
+
+  defp cli_value("args", args), do: Enum.map(args, &cli_config/1)
+  defp cli_value(_key, value), do: cli_leaf(value)
+
+  defp cli_leaf(value) when is_boolean(value) or is_number(value), do: value
+  defp cli_leaf(value) when is_atom(value), do: Atom.to_string(value)
+  defp cli_leaf(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&cli_leaf/1)
+  defp cli_leaf(value) when is_list(value), do: Enum.map(value, &cli_leaf/1)
+  defp cli_leaf(value), do: value
+
+  defp camelize(key) do
+    [first | rest] = key |> to_string() |> String.split("_")
+    first <> Enum.map_join(rest, &String.capitalize/1)
   end
 
   # The host executable for this release, from wherever `host_source/2` says.
@@ -195,7 +258,7 @@ defmodule Baguette.Release do
     case source do
       :precompiled ->
         Mix.shell().info([:green, "* downloading ", :reset, "the precompiled host"])
-        host = download_asset!(host_asset(baguette_version(), otp_version(), desktop_target()))
+        host = fetch_asset!(host_asset(baguette_version(), otp_version(), desktop_target()))
         Path.join(host, "baguette_host#{exe()}")
 
       {:local, path} ->
@@ -229,32 +292,20 @@ defmodule Baguette.Release do
   defp host_sha256, do: sha256_file("priv/host.sha256")
 
   # Downloads, checks and unpacks a Baguette release asset into the user
-  # cache, once, and returns the directory.
-  defp download_asset!(asset) do
-    sha256 = Map.get(host_sha256(), asset) || Mix.raise("no pinned checksum for #{asset}")
-
-    dir =
-      Path.join([
-        :filename.basedir(:user_cache, "baguette"),
-        "assets",
-        Path.rootname(asset, ".tar.gz")
-      ])
-
-    unless File.dir?(dir) do
-      url = "#{@liberlang_releases}/v#{baguette_version()}/#{asset}"
-      body = http_get!(url)
-
-      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256,
-        do: Mix.raise("#{asset} does not match its pinned SHA-256")
-
-      partial = dir <> ".partial"
-      File.rm_rf!(partial)
-      File.mkdir_p!(partial)
-      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
-      File.rename!(partial, dir)
-    end
-
-    dir
+  # cache, once, and returns the directory (`levain-pack fetch`).
+  defp fetch_asset!(asset) do
+    levain_pack!(
+      [
+        "fetch",
+        "#{@liberlang_releases}/v#{baguette_version()}",
+        asset,
+        "--sha256",
+        Path.join(baguette_root(), "priv/host.sha256"),
+        "--cache",
+        Path.join(:filename.basedir(:user_cache, "baguette"), "assets")
+      ],
+      capture: true
+    )
   end
 
   defp baguette_version do
@@ -309,46 +360,36 @@ defmodule Baguette.Release do
         {Path.join(release.path, dir) <> "/", "release/#{dir}/"}
       end
 
-    config = %{
-      productName: name,
-      mainBinaryName: "#{name}_app",
-      version: release.version,
-      identifier: options[:identifier] || "dev.baguette.#{name}",
-      bundle: %{active: true, targets: bundles, resources: resources}
-    }
-
-    config_path = Path.join(release.version_path, "tauri.bundle.json")
-    File.write!(config_path, :json.encode(config))
-    Mix.shell().info([:green, "* bundling ", :reset, Enum.join(bundles, ", ")])
-
-    # The host `package/1` installed, however it came, is bundled as it is:
-    # it goes where the bundler looks, and nothing is compiled again.
-    target_dir = Path.join(Mix.Project.build_path(), "baguette_host")
-    File.mkdir_p!(Path.join(target_dir, "release"))
+    out = Path.join(Mix.Project.build_path(), "bundle")
     host = Path.join([release.path, "bin", "#{name}_app#{exe()}"])
 
-    for file <- ["baguette_host", "#{name}_app"],
-        do: File.cp!(host, Path.join([target_dir, "release", file <> exe()]))
-
-    {_, 0} =
-      System.cmd(
-        "npx",
-        ["--yes", "@tauri-apps/cli@2", "bundle", "--config", config_path] ++
-          user_tauri_config() ++ ["--bundles" | bundles],
-        cd: Path.join(native, "baguette_host"),
-        env: [{"CARGO_TARGET_DIR", target_dir}, {"NO_STRIP", "true"}],
-        into: IO.stream()
-      )
-
-    out = Path.join(Mix.Project.build_path(), "bundle")
-
-    # Only the bundles themselves, not the bundler's staging directories.
-    for format <- bundles,
-        from <- Path.wildcard(Path.join([target_dir, "release", "bundle", format, "#{name}_*"])),
-        File.regular?(from) do
-      File.mkdir_p!(Path.join(out, format))
-      File.cp!(from, Path.join([out, format, Path.basename(from)]))
-    end
+    # The host `package/1` installed, however it came, is bundled as it is:
+    # nothing is compiled again.
+    levain_pack!(
+      [
+        "bundle",
+        "--project",
+        Path.join(native, "baguette_host"),
+        "--host",
+        host,
+        "--host-name",
+        "baguette_host",
+        "--name",
+        name,
+        "--version",
+        release.version,
+        "--identifier",
+        options[:identifier] || "dev.baguette.#{name}",
+        "--bundles",
+        Enum.join(bundles, ","),
+        "--target-dir",
+        Path.join(Mix.Project.build_path(), "baguette_host"),
+        "--out",
+        out
+      ] ++
+        Enum.flat_map(resources, fn {from, to} -> ["--resource", "#{from}=#{to}"] end) ++
+        user_tauri_config()
+    )
 
     Mix.shell().info([:green, "* bundled ", :reset, Path.relative_to_cwd(out)])
     release
@@ -423,15 +464,16 @@ defmodule Baguette.Release do
 
     env = [
       {"BAGUETTE_LIBERLANG", liberlang},
-      {"BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"LEVAIN_APP_ARCHIVE", archive},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "android"])}
     ]
 
-    run!(host, "npm", ["install", "--no-audit", "--no-fund"], env)
-    File.rm_rf!(Path.join(host, "gen/android"))
-    run!(host, "npm", ["run", "tauri", "--", "android", "init", "--ci", "--config", config], env)
     signed? = System.get_env("BAGUETTE_ANDROID_KEYSTORE") not in [nil, ""]
-    patch_gradle!(Path.join(host, "gen/android/app/build.gradle.kts"), signed?)
+
+    levain_pack!(
+      ["init", "android", "--project", host, "--config", config] ++
+        if(signed?, do: ["--signing-env", "BAGUETTE_ANDROID"], else: []) ++ env_args(env)
+    )
 
     # Native libraries the app loads or runs besides the host itself.
     for abi <- abis do
@@ -480,25 +522,21 @@ defmodule Baguette.Release do
       |> AndroidNifs.build!(jni, &run!/4)
     end
 
-    run!(
-      host,
-      "npm",
-      ["run", "tauri", "--", "android", "build", "--ci", "--config", config] ++
-        if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
-        Enum.flat_map(abis, &["--target", &1.tauri]) ++
-        tauri_features(release.options),
-      env
-    )
-
-    outputs = Path.join(host, "gen/android/app/build/outputs")
     File.rm(Path.join(out, "#{name}.aab"))
 
-    for ext <- if(signed?, do: ["apk", "aab"], else: ["apk"]) do
-      [built | _] = Path.wildcard(Path.join(outputs, "**/*.#{ext}"))
-      target = Path.join(out, "#{name}.#{ext}")
-      File.cp!(built, target)
-      Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(target)])
-    end
+    products =
+      for ext <- if(signed?, do: ["apk", "aab"], else: ["apk"]),
+          do: ["--product", "#{ext}=#{Path.join(out, "#{name}.#{ext}")}"]
+
+    levain_pack!(
+      ["build", "android", "--project", host, "--config", config] ++
+        List.flatten(products) ++
+        env_args(env) ++
+        ["--"] ++
+        if(signed?, do: ["--apk", "--aab"], else: ["--debug", "--apk"]) ++
+        Enum.flat_map(abis, &["--target", &1.tauri]) ++
+        tauri_features(release.options)
+    )
 
     release
   end
@@ -591,32 +629,30 @@ defmodule Baguette.Release do
     # and `CARGO_*` variables; the host's build.rs reads both spellings.
     env = [
       {"TAURI_BAGUETTE_LIBERLANG", liberlang},
-      {"TAURI_BAGUETTE_RELEASE_ARCHIVE", archive},
+      {"TAURI_LEVAIN_APP_ARCHIVE", archive},
       {"TAURI_BAGUETTE_IOS_NIFS", nifs},
       {"CARGO_TARGET_DIR", Path.join([baguette_root(), "native", "target", "ios"])}
     ]
 
-    run!(project, "npm", ["install", "--no-audit", "--no-fund"], env)
-    File.rm_rf!(Path.join(project, "gen/apple"))
-    run!(project, "npm", ["run", "tauri", "--", "ios", "init", "--ci", "--config", config], env)
-    patch_xcodegen!(Path.join(project, "gen/apple/project.yml"))
-    # `ios init` generated the Xcode project before the patch; again with it.
-    run!(Path.join(project, "gen/apple"), "xcodegen", ["generate"], [])
-
-    run!(
-      project,
-      "npm",
-      ["run", "tauri", "--", "ios", "build", "--ci", "--config", config, "--target", target.tauri] ++
-        ios_build_options(target) ++ tauri_features(release.options),
-      env
+    # The app's Rust library carries the BEAM, whose `enif_*` functions only
+    # NIFs call (Rustler finds them with `dlsym` in the app's exports):
+    # `-export_dynamic` keeps the linker from dead-stripping them. The BEAM
+    # also needs libc++, and reading the system's DNS servers libresolv.
+    levain_pack!(
+      ["init", "ios", "--project", project, "--config", config] ++
+        ["--ldflags", "-Wl,-export_dynamic -lc++ -lresolv"] ++ env_args(env)
     )
 
     ext = if target.simulator, do: "app", else: "ipa"
-    [built | _] = Path.wildcard(Path.join(project, "gen/apple/build/**/*.#{ext}"))
-    product = Path.join(out, "#{name}.#{ext}")
-    File.rm_rf!(product)
-    File.cp_r!(built, product)
-    Mix.shell().info([:green, "* built ", :reset, Path.relative_to_cwd(product)])
+
+    levain_pack!(
+      ["build", "ios", "--project", project, "--config", config] ++
+        ["--product", "#{ext}=#{Path.join(out, "#{name}.#{ext}")}"] ++
+        env_args(env) ++
+        ["--", "--target", target.tauri] ++
+        ios_build_options(target) ++ tauri_features(release.options)
+    )
+
     release
   end
 
@@ -646,27 +682,6 @@ defmodule Baguette.Release do
       end
 
     debug ++ sign ++ export
-  end
-
-  # The app's Rust library carries the BEAM, whose `enif_*` functions only
-  # NIFs call (Rustler finds them with `dlsym` in the app's exports):
-  # `-export_dynamic` keeps the linker from dead-stripping them, and
-  # stripping an archived (release) build keeps global symbols, which would
-  # otherwise empty its exports. The BEAM also needs libc++, and reading the
-  # system's DNS servers libresolv.
-  defp patch_xcodegen!(path) do
-    at = "        ENABLE_BITCODE: false\n"
-
-    flags =
-      "        OTHER_LDFLAGS: $(inherited) -Wl,-export_dynamic -lc++ -lresolv\n" <>
-        "        STRIP_STYLE: non-global\n"
-
-    yml = File.read!(path)
-
-    if not String.contains?(yml, at),
-      do: Mix.raise("#{path}: no build settings to add the linker flags to")
-
-    File.write!(path, String.replace(yml, at, at <> flags, global: false))
   end
 
   defp mobile?, do: System.get_env("BAGUETTE_ANDROID") || System.get_env("BAGUETTE_IOS")
@@ -703,46 +718,6 @@ defmodule Baguette.Release do
 
     host = if match?({:unix, :darwin}, :os.type()), do: "darwin-x86_64", else: "linux-x86_64"
     Path.join([ndk, "toolchains/llvm/prebuilt", host, "bin", "#{triple}24-clang"])
-  end
-
-  # Android only runs executables extracted from the APK, so native libraries
-  # (erl_child_setup among them) are installed as files, not mapped from it.
-  # A release is signed with the key the BAGUETTE_ANDROID_KEY* variables name.
-  defp patch_gradle!(path, signed?) do
-    signing = """
-        signingConfigs {
-            create("release") {
-                storeFile = file(System.getenv("BAGUETTE_ANDROID_KEYSTORE"))
-                storePassword = System.getenv("BAGUETTE_ANDROID_KEYSTORE_PASSWORD")
-                keyAlias = System.getenv("BAGUETTE_ANDROID_KEY_ALIAS")
-                keyPassword = System.getenv("BAGUETTE_ANDROID_KEY_PASSWORD")
-            }
-        }
-    """
-
-    gradle =
-      path
-      |> File.read!()
-      |> String.replace(
-        ~r/^android \{\n/m,
-        "android {\n    packaging { jniLibs { useLegacyPackaging = true } }\n" <>
-          if(signed?, do: signing, else: ""),
-        global: false
-      )
-
-    gradle =
-      if signed? do
-        String.replace(
-          gradle,
-          ~s/getByName("release") {\n/,
-          ~s/getByName("release") {\n            signingConfig = signingConfigs.getByName("release")\n/,
-          global: false
-        )
-      else
-        gradle
-      end
-
-    File.write!(path, gradle)
   end
 
   defp run!(dir, command, args, env) do
@@ -808,30 +783,33 @@ defmodule Baguette.Release do
   defp download_liberlang!(targets) do
     otp = otp_version()
     root = Path.join([:filename.basedir(:user_cache, "baguette"), "liberlang", otp])
+    sums = Path.join(baguette_root(), "priv/liberlang.sha256")
 
     for target <- targets, not File.dir?(Path.join(root, target)) do
       asset = "liberlang-OTP-#{otp}-#{target}.tar.gz"
 
-      sha256 =
-        Map.get(liberlang_sha256(), asset) ||
-          Mix.raise(
-            "no prebuilt BEAM for OTP #{otp} on #{target}; " <>
-              "use a supported OTP or set BAGUETTE_LIBERLANG"
-          )
-
-      url = "#{@liberlang_releases}/liberlang-OTP-#{otp}/#{asset}"
-      Mix.shell().info([:green, "* downloading ", :reset, url])
-      body = http_get!(url)
-
-      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256 do
-        Mix.raise("#{asset} does not match its pinned SHA-256")
+      if not Map.has_key?(liberlang_sha256(), asset) do
+        Mix.raise(
+          "no prebuilt BEAM for OTP #{otp} on #{target}; " <>
+            "use a supported OTP or set BAGUETTE_LIBERLANG"
+        )
       end
 
-      partial = Path.join(root, "#{target}.partial")
-      File.rm_rf!(partial)
-      File.mkdir_p!(partial)
-      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
-      File.rename!(partial, Path.join(root, target))
+      dir =
+        levain_pack!(
+          [
+            "fetch",
+            "#{@liberlang_releases}/liberlang-OTP-#{otp}",
+            asset,
+            "--sha256",
+            sums,
+            "--cache",
+            Path.join(root, "downloads")
+          ],
+          capture: true
+        )
+
+      File.rename!(dir, Path.join(root, target))
     end
 
     root
@@ -883,6 +861,136 @@ defmodule Baguette.Release do
       end)
 
     Path.join([native, "target" | dirs])
+  end
+
+  # `levain-pack`, which packages the host (see levain): `LEVAIN_PACK`, the
+  # precompiled one from levain's GitHub release when `priv/levain-pack.sha256`
+  # pins it for this platform, or else built with Cargo from the levain
+  # revision the host is pinned to.
+  defp levain_pack!(args, opts \\ []) do
+    pack = levain_pack_path()
+    Mix.shell().info([:green, "* running ", :reset, Enum.join(["levain-pack" | args], " ")])
+
+    if opts[:capture] do
+      case System.cmd(pack, args, stderr_to_stdout: false) do
+        {out, 0} -> String.trim(out)
+        {_, status} -> Mix.raise("levain-pack exited with #{status}")
+      end
+    else
+      case System.cmd(pack, args, into: IO.stream(), stderr_to_stdout: true) do
+        {_, 0} -> :ok
+        {_, status} -> Mix.raise("levain-pack exited with #{status}")
+      end
+    end
+  end
+
+  defp levain_pack_path do
+    sums = sha256_file("priv/levain-pack.sha256")
+
+    case levain_pack_source(System.get_env(), sums, desktop_target()) do
+      {:local, path} ->
+        path
+
+      {:precompiled, url, sha256} ->
+        Path.join(download!(url, sha256), "levain-pack#{exe()}")
+
+      :build ->
+        {repo, rev} = levain_revision()
+        root = Path.join([:filename.basedir(:user_cache, "baguette"), "levain-pack", rev])
+        pack = Path.join([root, "bin", "levain-pack#{exe()}"])
+
+        if not File.exists?(pack) do
+          Mix.shell().info([:green, "* building ", :reset, "levain-pack #{rev}"])
+
+          {_, 0} =
+            System.cmd(
+              "cargo",
+              ~w(install --locked --git #{repo} --rev #{rev} --root #{root} levain-pack),
+              into: IO.stream(),
+              stderr_to_stdout: true
+            )
+        end
+
+        pack
+    end
+  end
+
+  # levain's GitHub releases, which carry `levain-pack` for each platform.
+  @levain_releases "https://github.com/Ziinc/levain/releases/download"
+
+  @doc false
+  # Where `levain-pack` comes from: `LEVAIN_PACK` in `env`; else levain's
+  # release asset for `target` when `checksums` (`priv/levain-pack.sha256`:
+  # `levain-pack-v<levain version>-<target>.tar.gz` lines from that release's
+  # SHA256SUMS) pins one; else a build from the pinned levain.
+  @spec levain_pack_source(map(), map(), String.t()) ::
+          {:local, Path.t()} | {:precompiled, String.t(), String.t()} | :build
+  def levain_pack_source(env, checksums, target) do
+    suffix = "-#{target}.tar.gz"
+
+    pinned =
+      Enum.find_value(checksums, fn {asset, sha256} ->
+        with "levain-pack-v" <> rest <- asset,
+             true <- String.ends_with?(rest, suffix),
+             version = String.replace_suffix(rest, suffix, ""),
+             true <- version =~ ~r/^\d+\.\d+\.\d+$/ do
+          {:precompiled, "#{@levain_releases}/v#{version}/#{asset}", sha256}
+        else
+          _ -> nil
+        end
+      end)
+
+    cond do
+      path = env["LEVAIN_PACK"] -> {:local, path}
+      pinned -> pinned
+      true -> :build
+    end
+  end
+
+  @doc false
+  # The levain repository and revision the host is pinned to.
+  @spec levain_revision(String.t()) :: {String.t(), String.t()}
+  def levain_revision(
+        cargo \\ File.read!(Path.join(baguette_root(), "native/baguette_host/Cargo.toml"))
+      ) do
+    case Regex.run(~r/^levain = \{ git = "([^"]+)", rev = "([0-9a-f]+)"/m, cargo) do
+      [_, repo, rev] -> {repo, rev}
+      nil -> Mix.raise("native/baguette_host/Cargo.toml pins no levain revision")
+    end
+  end
+
+  @doc false
+  # `--env NAME=value` for each variable levain-pack passes on.
+  @spec env_args(Enumerable.t()) :: [String.t()]
+  def env_args(env), do: Enum.flat_map(env, fn {k, v} -> ["--env", "#{k}=#{v}"] end)
+
+  # Downloads `url`, a `.tar.gz` that must match `sha256`, and unpacks it into
+  # the user cache, once, returning the directory. Only for `levain-pack`
+  # itself: everything else is fetched by it.
+  defp download!(url, sha256) do
+    asset = Path.basename(url)
+
+    dir =
+      Path.join([
+        :filename.basedir(:user_cache, "baguette"),
+        "assets",
+        Path.rootname(asset, ".tar.gz")
+      ])
+
+    unless File.dir?(dir) do
+      body = http_get!(url)
+
+      if Base.encode16(:crypto.hash(:sha256, body), case: :lower) != sha256,
+        do: Mix.raise("#{asset} does not match its pinned SHA-256")
+
+      partial = dir <> ".partial"
+      File.rm_rf!(partial)
+      File.mkdir_p!(partial)
+      :ok = :erl_tar.extract({:binary, body}, [:compressed, cwd: String.to_charlist(partial)])
+      File.rename!(partial, dir)
+    end
+
+    dir
   end
 
   defp baguette_root do

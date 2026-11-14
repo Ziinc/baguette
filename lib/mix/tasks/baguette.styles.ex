@@ -1,13 +1,14 @@
 defmodule Mix.Tasks.Baguette.Styles do
   @shortdoc "Generates style classes from GPUI's Styled trait"
   @moduledoc """
-  Generates `native/baguette_host/src/style_gen.rs`: one class per method
+  Generates levain's `levain/src/style_gen.rs`, in the levain checkout
+  given (the host's renderer lives in levain): one class per method
   of GPUI's `Styled` trait that takes no argument (`w_1_2` is `w-1/2`,
   `mt_neg_2` is `-mt-2`, `p_0p5` is `p-0.5`), limited to the stable
   categories: flex, grid, size, spacing, position, overflow, border,
   radius, shadow, cursor and text.
 
-      mix baguette.styles
+      mix baguette.styles ../levain
 
   It reads the trait from rustdoc's JSON for `gpui-pre`, which needs a
   nightly toolchain (`rustup toolchain install nightly --profile minimal`).
@@ -28,7 +29,7 @@ defmodule Mix.Tasks.Baguette.Styles do
   )
 
   @impl true
-  def run(_args) do
+  def run([levain]) do
     native = Path.join(Mix.Project.deps_paths()[:baguette] || File.cwd!(), "native")
     target = Path.join(System.tmp_dir!(), "baguette-rustdoc")
 
@@ -45,7 +46,7 @@ defmodule Mix.Tasks.Baguette.Styles do
 
     rustdoc = target |> Path.join("doc/gpui.json") |> File.read!() |> JSON.decode!()
     version = rustdoc["crate_version"] || "unknown"
-    out = Path.join(native, "baguette_host/src/style_gen.rs")
+    out = Path.join(levain, "levain/src/style_gen.rs")
     File.write!(out, render(methods(rustdoc), version))
     Mix.shell().info([:green, "* wrote ", :reset, Path.relative_to_cwd(out)])
   end
@@ -86,7 +87,7 @@ defmodule Mix.Tasks.Baguette.Styles do
           words
       end
 
-    name = words |> Enum.map(&String.replace(&1, ~r/^(\d+)p(\d+)$/, "\\1.\\2")) |> Enum.join("-")
+    name = Enum.map_join(words, "-", &String.replace(&1, ~r/^(\d+)p(\d+)$/, "\\1.\\2"))
     if negative, do: "-" <> name, else: name
   end
 

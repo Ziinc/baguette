@@ -26,6 +26,78 @@ defmodule Baguette.ReleaseTest do
              ["--no-default-features", "--features", "x"]
   end
 
+  describe "cli_config/1" do
+    test "writes Tauri's schema: camelCase keys, string names, nested subcommands" do
+      cli = [
+        description: "Adds numbers",
+        long_description: "Long",
+        before_help: "before",
+        after_help: "after",
+        args: [[name: "verbose", short: "v", description: "Chatty"]],
+        subcommands: [
+          sum: [
+            description: "Prints the sum",
+            args: [
+              [name: :a, index: 1, takes_value: true, required: true],
+              %{name: "rest", index: 3, number_of_values: 2, min_values: 1, max_values: 4},
+              [name: "mode", takes_value: true, possible_values: ["x", :y]],
+              [name: "out", required_unless_present: "json", require_equals: true],
+              [name: "when", requires_if: {"a", "b"}, conflicts_with_all: ["x"]]
+            ],
+            subcommands: %{"deep" => %{description: "d"}}
+          ]
+        ]
+      ]
+
+      assert Release.cli_config(cli) == %{
+               "description" => "Adds numbers",
+               "longDescription" => "Long",
+               "beforeHelp" => "before",
+               "afterHelp" => "after",
+               "args" => [%{"name" => "verbose", "short" => "v", "description" => "Chatty"}],
+               "subcommands" => %{
+                 "sum" => %{
+                   "description" => "Prints the sum",
+                   "args" => [
+                     %{"name" => "a", "index" => 1, "takesValue" => true, "required" => true},
+                     %{
+                       "name" => "rest",
+                       "index" => 3,
+                       "numberOfValues" => 2,
+                       "minValues" => 1,
+                       "maxValues" => 4
+                     },
+                     %{"name" => "mode", "takesValue" => true, "possibleValues" => ["x", "y"]},
+                     %{
+                       "name" => "out",
+                       "requiredUnlessPresent" => "json",
+                       "requireEquals" => true
+                     },
+                     %{"name" => "when", "requiresIf" => ["a", "b"], "conflictsWithAll" => ["x"]}
+                   ],
+                   "subcommands" => %{"deep" => %{"description" => "d"}}
+                 }
+               }
+             }
+    end
+
+    test "already-camelCase keys and nil values pass through" do
+      assert Release.cli_config(%{"takesValue" => true, description: nil}) ==
+               %{"takesValue" => true}
+    end
+
+    test "baguette_json/1 holds the window, and the cli only when declared" do
+      assert Release.baguette_json(%{baguette: [window: [title: "T"]]}) == %{
+               window: %{title: "T"}
+             }
+
+      assert Release.baguette_json(%{baguette: [cli: [description: "d"]]}) ==
+               %{window: %{}, cli: %{"description" => "d"}}
+
+      assert Release.baguette_json(%{}) == %{window: %{}}
+    end
+  end
+
   describe "host_source/2" do
     test "a default host is downloaded, precompiled" do
       assert Release.host_source([], %{}) == :precompiled
@@ -61,6 +133,91 @@ defmodule Baguette.ReleaseTest do
     assert workflow =~ ~s(asset="baguette_host-v$version-${OTP_TAG}-${{ matrix.target }}.tar.gz")
     assert Release.host_asset("V", "X", "T") == "baguette_host-vV-OTP-X-T.tar.gz"
     assert workflow =~ "OTP_TAG: OTP-"
+  end
+
+  describe "levain_revision/1" do
+    test "reads the repository and revision levain is pinned to" do
+      cargo = """
+      [dependencies]
+      levain = { git = "https://github.com/Ziinc/levain", rev = "268f2c3cc21", default-features = false }
+      """
+
+      assert Release.levain_revision(cargo) == {"https://github.com/Ziinc/levain", "268f2c3cc21"}
+    end
+
+    test "raises without a pin" do
+      for cargo <- [
+            "",
+            ~s(levain = { path = "../../../levain" }\n),
+            ~s(levain = { git = "https://github.com/Ziinc/levain", branch = "main" }\n)
+          ] do
+        assert_raise Mix.Error, ~r/pins no levain revision/, fn ->
+          Release.levain_revision(cargo)
+        end
+      end
+    end
+
+    test "the host reads the pin from its own Cargo.toml" do
+      assert {"https://" <> _, rev} = Release.levain_revision()
+      assert rev =~ ~r/^[0-9a-f]{40}$/
+    end
+
+    test "baguette_host, baguette_beam and baguette_nif pin the same levain revision" do
+      pins =
+        for crate <- ~w(baguette_host baguette_beam baguette_nif), into: %{} do
+          cargo = File.read!("native/#{crate}/Cargo.toml")
+
+          assert [_, repo, rev] =
+                   Regex.run(
+                     ~r/^levain(?:-abi)? = \{ git = "([^"]+)", rev = "([0-9a-f]+)"/m,
+                     cargo
+                   ),
+                 "native/#{crate}/Cargo.toml pins no levain revision"
+
+          {crate, {repo, rev}}
+        end
+
+      assert pins |> Map.values() |> Enum.uniq() |> length() == 1, inspect(pins)
+    end
+  end
+
+  describe "levain_pack_source/3" do
+    @sums %{
+      "levain-pack-v0.3.0-x86_64-linux.tar.gz" => "aa",
+      "levain-pack-v0.3.0-aarch64-macos.tar.gz" => "bb"
+    }
+
+    test "LEVAIN_PACK uses a levain-pack built elsewhere, even with a pinned checksum" do
+      assert Release.levain_pack_source(%{"LEVAIN_PACK" => "/tmp/pack"}, @sums, "x86_64-linux") ==
+               {:local, "/tmp/pack"}
+    end
+
+    test "a pinned checksum downloads this target's levain-pack from levain's release" do
+      assert Release.levain_pack_source(%{}, @sums, "aarch64-macos") ==
+               {:precompiled,
+                "https://github.com/Ziinc/levain/releases/download/v0.3.0/levain-pack-v0.3.0-aarch64-macos.tar.gz",
+                "bb"}
+    end
+
+    test "without either, levain-pack is built from the pinned levain" do
+      assert Release.levain_pack_source(%{}, %{}, "x86_64-linux") == :build
+      assert Release.levain_pack_source(%{}, @sums, "x86_64-windows") == :build
+      # Another target's name is not a suffix match.
+      assert Release.levain_pack_source(%{}, @sums, "linux") == :build
+    end
+  end
+
+  test "env_args/1 passes each variable to levain-pack as --env NAME=value" do
+    assert Release.env_args([]) == []
+
+    assert Release.env_args([{"A", "1"}, {"B", "x=y"}]) ==
+             ["--env", "A=1", "--env", "B=x=y"]
+  end
+
+  test "levain-pack comes from levain's releases, not the host workflow" do
+    refute File.read!(".github/workflows/host.yml") =~ "levain-pack"
+    assert "priv/levain-pack.sha256" in Mix.Project.config()[:package][:files]
+    assert File.exists?("priv/levain-pack.sha256")
   end
 
   test "precompiled hosts are built for size, with the dist profile" do

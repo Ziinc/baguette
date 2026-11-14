@@ -1,0 +1,29 @@
+# typos: spell-check code, comments and docs. Run locally with `typos`.
+
+[files]
+extend-exclude = [
+  "*.lock",
+  "package-lock.json",
+  "*.sha256",
+  # Fixtures levain also holds, and the generated component catalog.
+  "test/fixtures/",
+  "priv/components/",
+  # Binary assets.
+  "*.ico",
+  "*.png",
+  "*.gif",
+]
+
+[default]
+extend-ignore-re = [
+  # Windows `tasklist /FO CSV`.
+  '"/FO"',
+  # "OTPs" (plural of OTP) is read as "OT" and "Ps".
+  "OTPs",
+]
+
+[default.extend-words]
+# OTP's DED_LD: the dynamic Erlang driver linker.
+DED = "DED"
+# iOS device identifier (`idb --udid`, simctl JSON).
+udid = "udid"
