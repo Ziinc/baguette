@@ -90,6 +90,7 @@ jobs:
     # the same OTP the release ships, so both share one ERTS. Like the other
     # platforms' example runs, pull requests skip it: merges to main, release
     # tags and manual runs run it.
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-24.04
     steps:
       # The runner's preinstalled toolchains leave too little disk for the
@@ -177,6 +178,7 @@ jobs:
 
   windows:
     # Pull requests skip it, as they do macOS: Windows runners are slow.
+    if: github.event_name != 'pull_request'
     uses: ./.github/workflows/windows.yml
 
   macos:
@@ -184,6 +186,7 @@ jobs:
     # and notarized when the repository has Tauri's APPLE_* secrets. Pull
     # requests skip it; merges to main, release tags and release.yml's dry
     # run (whose assets include the disk images) run it.
+    if: github.event_name != 'pull_request'
     strategy:
       fail-fast: false
       matrix:

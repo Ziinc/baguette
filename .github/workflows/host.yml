@@ -7,7 +7,6 @@ name: Host
 # GitHub release; pin the checksums this prints in priv/host.sha256.
 
 on:
-  pull_request:
   workflow_call:
   workflow_dispatch:
 
