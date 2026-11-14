@@ -1,0 +1,21 @@
+id: no-println-rust
+language: rust
+severity: error
+message: >
+  Do not use println! in the native crates. Their stdout belongs to the app
+  they host; the log path is levain::log_line. println! stays allowed in
+  build scripts (Cargo directives) and tests.
+files:
+  - "*/src/**/*.rs"
+ignores:
+  - "**/tests.rs"
+  - "**/tests/**"
+rule:
+  pattern: println!($$$)
+  not:
+    inside:
+      kind: mod_item
+      has:
+        field: name
+        regex: '^tests?$'
+      stopBy: end

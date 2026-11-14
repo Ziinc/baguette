@@ -390,7 +390,7 @@ fn ios_nameservers() -> String {
 #[cfg(not(baguette_beam))]
 fn run(_args: Vec<String>) {
     let _ = CString::default;
-    eprintln!("baguette: this host was built without the BEAM (set BAGUETTE_LIBERLANG)");
+    levain::log_line("baguette: this host was built without the BEAM (set BAGUETTE_LIBERLANG)");
 }
 
 /// The name a release's NIF `<stem>.so` ships under in the APK:

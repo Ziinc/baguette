@@ -1,0 +1,23 @@
+id: no-eprintln-rust
+language: rust
+severity: error
+message: >
+  Do not use eprintln! in the native crates. Route it through levain::log_line,
+  the one place that knows the platform log: stderr on desktop and iOS,
+  logcat on Android. eprintln! stays allowed in build scripts and tests,
+  where stderr is the output.
+files:
+  - "**/*.rs"
+ignores:
+  - "**/build.rs"
+  - "**/tests/**"
+  - "**/tests.rs"
+rule:
+  pattern: eprintln!($$$)
+  not:
+    inside:
+      kind: mod_item
+      has:
+        field: name
+        regex: '^tests?$'
+      stopBy: end

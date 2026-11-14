@@ -367,6 +367,16 @@ mix test
 scripts/e2e-linux.sh   # the counter release, clicked through AT-SPI on Xvfb
 ```
 
+CI's `lint` job runs [ast-grep](https://ast-grep.github.io) rules over the
+Rust (`native/lint/ast-grep`), [typos](https://github.com/crate-ci/typos),
+[cargo-machete](https://github.com/bnjbvr/cargo-machete) and
+[cargo-deny](https://github.com/EmbarkStudios/cargo-deny) (`native/deny.toml`):
+
+```sh
+typos
+(cd native && ast-grep test && ast-grep scan && cargo machete && cargo deny --locked check)
+```
+
 End-to-end tests through [gpui-playwright](https://github.com/ziinc/gpui-playwright),
 written in ExUnit with `Baguette.Playwright`:
 
